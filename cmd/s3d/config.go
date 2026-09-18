@@ -52,6 +52,10 @@ type (
 		// UploadThreads is the number of object groups uploaded to Sia
 		// concurrently by the background upload loop.
 		UploadThreads int `yaml:"uploadThreads"`
+		// DataShards and ParityShards override the SDK's upload redundancy when
+		// both are non-zero. Leaving both at zero preserves the SDK defaults.
+		DataShards   uint8 `yaml:"dataShards,omitempty"`
+		ParityShards uint8 `yaml:"parityShards,omitempty"`
 	}
 
 	// Config contains the configuration for S3d.

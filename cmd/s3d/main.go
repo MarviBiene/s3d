@@ -300,7 +300,15 @@ func main() {
 		checkFatalError("failed to create SDK client", err)
 	}
 
-	backend, err := sia.New(ctx, sia.NewSDK(sdkClient), store, cfg.Directory,
+	sdkOpts := []sia.SDKOption{}
+	if cfg.Sia.DataShards != 0 || cfg.Sia.ParityShards != 0 {
+		if cfg.Sia.DataShards == 0 || cfg.Sia.ParityShards == 0 {
+			checkFatalError("invalid Sia redundancy configuration", errors.New("dataShards and parityShards must either both be zero or both be non-zero"))
+		}
+		sdkOpts = append(sdkOpts, sia.WithUploadOptions(sdk.WithRedundancy(cfg.Sia.DataShards, cfg.Sia.ParityShards)))
+	}
+
+	backend, err := sia.New(ctx, sia.NewSDK(sdkClient, sdkOpts...), store, cfg.Directory,
 		sia.WithDiskUsageLimit(cfg.Sia.DiskUsageLimit),
 		sia.WithUploadThreads(cfg.Sia.UploadThreads),
 		sia.WithLogger(log.Named("backend")))
