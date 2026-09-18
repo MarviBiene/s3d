@@ -23,4 +23,3 @@ func TestLoadFileRedundancy(t *testing.T) {
 		t.Fatalf("unexpected redundancy: %d+%d", cfg.Sia.DataShards, cfg.Sia.ParityShards)
 	}
 }
-
