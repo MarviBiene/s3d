@@ -308,10 +308,15 @@ func main() {
 		sdkOpts = append(sdkOpts, sia.WithUploadOptions(sdk.WithRedundancy(cfg.Sia.DataShards, cfg.Sia.ParityShards)))
 	}
 
-	backend, err := sia.New(ctx, sia.NewSDK(sdkClient, sdkOpts...), store, cfg.Directory,
+	backendOpts := []sia.Option{
 		sia.WithDiskUsageLimit(cfg.Sia.DiskUsageLimit),
 		sia.WithUploadThreads(cfg.Sia.UploadThreads),
-		sia.WithLogger(log.Named("backend")))
+		sia.WithLogger(log.Named("backend")),
+	}
+	if cfg.Sia.DataShards != 0 && cfg.Sia.ParityShards != 0 {
+		backendOpts = append(backendOpts, sia.WithUploadShardCounts(cfg.Sia.DataShards, cfg.Sia.ParityShards))
+	}
+	backend, err := sia.New(ctx, sia.NewSDK(sdkClient, sdkOpts...), store, cfg.Directory, backendOpts...)
 	if err != nil {
 		checkFatalError("failed to create Sia backend", err)
 	}
