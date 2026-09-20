@@ -114,6 +114,9 @@ func (s *Sia) UploadPart(ctx context.Context, accessKeyID, bucket, object string
 	if err := s.addDiskUsage(ctx, opts.ContentLength, allowExcess); err != nil {
 		return nil, err
 	}
+	r, finishIngress := s.trackS3Ingress(r)
+	defer finishIngress()
+
 	var partPath string
 	defer func() {
 		if err != nil {
