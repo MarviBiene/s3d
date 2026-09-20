@@ -19,7 +19,19 @@ type BackupSQLite3Request struct {
 	Path string `json:"path"`
 }
 
-// UploadStats contains statistics about the background upload pipeline.
+// ActiveUploadStats reports progress for one upload group currently being
+// streamed from the local buffer into the Sia SDK.
+type ActiveUploadStats struct {
+	ID       uint64 `json:"id"`
+	Label    string `json:"label"`
+	Objects  int    `json:"objects"`
+	Size     int64  `json:"size"`
+	Uploaded int64  `json:"uploaded"`
+	State    string `json:"state"`
+}
+
+// UploadStats contains statistics about the background upload pipeline and
+// live transfer activity. Transfer byte totals are process-lifetime counters.
 type UploadStats struct {
 	PendingObjects   int64 `json:"pendingObjects"`
 	PendingSize      int64 `json:"pendingSize"`
@@ -29,12 +41,25 @@ type UploadStats struct {
 	FailedUploads    int64 `json:"failedUploads"`
 	OrphanedObjects  int64 `json:"orphanedObjects"`
 	MultipartUploads int64 `json:"multipartUploads"`
+
+	S3IngressActive int64 `json:"s3IngressActive"`
+	S3IngressBytes  int64 `json:"s3IngressBytes"`
+	S3IngressRate   int64 `json:"s3IngressRate"`
+
+	SiaUploadActive int64 `json:"siaUploadActive"`
+	SiaUploadBytes  int64 `json:"siaUploadBytes"`
+	SiaUploadRate   int64 `json:"siaUploadRate"`
+
+	BufferUsed  int64 `json:"bufferUsed"`
+	BufferLimit int64 `json:"bufferLimit"`
+
+	ActiveUploads []ActiveUploadStats `json:"activeUploads,omitempty"`
 }
 
 // PrometheusMetric implements the prometheus.Marshaller interface for the
 // upload stats response.
 func (s UploadStats) PrometheusMetric() []prometheus.Metric {
-	return []prometheus.Metric{
+	metrics := []prometheus.Metric{
 		{
 			Name:  "s3d_upload_pending_objects",
 			Value: float64(s.PendingObjects),
@@ -67,7 +92,59 @@ func (s UploadStats) PrometheusMetric() []prometheus.Metric {
 			Name:  "s3d_upload_multipart_uploads",
 			Value: float64(s.MultipartUploads),
 		},
+		{
+			Name:  "s3d_transfer_s3_ingress_active",
+			Value: float64(s.S3IngressActive),
+		},
+		{
+			Name:  "s3d_transfer_s3_ingress_bytes_total",
+			Value: float64(s.S3IngressBytes),
+		},
+		{
+			Name:  "s3d_transfer_s3_ingress_bytes_per_second",
+			Value: float64(s.S3IngressRate),
+		},
+		{
+			Name:  "s3d_transfer_sia_upload_active",
+			Value: float64(s.SiaUploadActive),
+		},
+		{
+			Name:  "s3d_transfer_sia_upload_bytes_total",
+			Value: float64(s.SiaUploadBytes),
+		},
+		{
+			Name:  "s3d_transfer_sia_upload_bytes_per_second",
+			Value: float64(s.SiaUploadRate),
+		},
+		{
+			Name:  "s3d_upload_buffer_used_bytes",
+			Value: float64(s.BufferUsed),
+		},
+		{
+			Name:  "s3d_upload_buffer_limit_bytes",
+			Value: float64(s.BufferLimit),
+		},
 	}
+	for _, upload := range s.ActiveUploads {
+		labels := map[string]any{
+			"id":      fmt.Sprint(upload.ID),
+			"state":   upload.State,
+			"objects": upload.Objects,
+		}
+		metrics = append(metrics,
+			prometheus.Metric{
+				Name:   "s3d_transfer_sia_active_upload_size_bytes",
+				Labels: labels,
+				Value:  float64(upload.Size),
+			},
+			prometheus.Metric{
+				Name:   "s3d_transfer_sia_active_upload_uploaded_bytes",
+				Labels: labels,
+				Value:  float64(upload.Uploaded),
+			},
+		)
+	}
+	return metrics
 }
 
 // handlePrometheus serves the admin API metrics in the Prometheus text
