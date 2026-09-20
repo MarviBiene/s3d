@@ -152,6 +152,16 @@ type Sia struct {
 
 	failedUploads atomic.Int64
 
+	s3IngressActive atomic.Int64
+	s3IngressBytes  atomic.Int64
+	s3IngressRate   atomic.Int64
+	siaUploadBytes  atomic.Int64
+	siaUploadRate   atomic.Int64
+
+	activeSiaUploadsMu sync.Mutex
+	activeSiaUploads   map[uint64]*activeSiaUpload
+	nextSiaUploadID    atomic.Uint64
+
 	tg     *threadgroup.ThreadGroup
 	logger *zap.Logger
 }
@@ -253,6 +263,7 @@ func New(ctx context.Context, sdk SDK, store Store, directory string, opts ...Op
 		lifecycleDayDuration:  defaultLifecycleDayDuration,
 		diskUsageTimeout:      defaultDiskUsageTimeout,
 		lockedUploads:         make(map[string]*lockedUpload),
+		activeSiaUploads:       make(map[uint64]*activeSiaUpload),
 
 		logger: zap.NewNop(),
 		tg:     threadgroup.New(),
@@ -314,6 +325,7 @@ func New(ctx context.Context, sdk SDK, store Store, directory string, opts ...Op
 		launchBgLoop(sia.uploadLoop),
 		launchBgLoop(sia.lifecycleLoop),
 		launchBgLoop(sia.pinLoop),
+		launchBgLoop(sia.transferStatsLoop),
 	); err != nil {
 		return nil, err
 	}
