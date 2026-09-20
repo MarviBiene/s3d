@@ -148,9 +148,9 @@ type Sia struct {
 	uploadMu          sync.Mutex
 	uploadDisabled    bool
 	uploadOptimalSize int64
-	uploadWastePct    float64
-	uploadThreads     int
-	uploadDataShards  uint8
+	uploadWastePct     float64
+	uploadThreads      int
+	uploadDataShards   uint8
 	uploadParityShards uint8
 
 	lifecycleLoopInterval time.Duration
