@@ -45,7 +45,8 @@ func runStatus(ctx context.Context, cmd *flag.FlagSet) {
 	fmt.Printf("  S3 Ingress:          %d active · %s/s\n", stats.S3IngressActive, humanBytes(stats.S3IngressRate))
 	fmt.Printf("  Sia Upload:          %d active · %s/s logical\n", stats.SiaUploadActive, humanBytes(stats.SiaUploadRate))
 	if cfg.Sia.DataShards > 0 && cfg.Sia.ParityShards > 0 {
-		encodedRate := stats.SiaUploadRate * int64(cfg.Sia.DataShards+cfg.Sia.ParityShards) / int64(cfg.Sia.DataShards)
+		shards := int64(cfg.Sia.DataShards) + int64(cfg.Sia.ParityShards)
+		encodedRate := stats.SiaUploadRate * shards / int64(cfg.Sia.DataShards)
 		fmt.Printf("  Sia Encoded:                    ~%s/s estimated\n", humanBytes(encodedRate))
 	}
 	fmt.Printf("  Buffer Change:                  %s\n", humanRateDelta(stats.S3IngressRate-stats.SiaUploadRate))
