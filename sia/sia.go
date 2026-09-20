@@ -263,7 +263,7 @@ func New(ctx context.Context, sdk SDK, store Store, directory string, opts ...Op
 		lifecycleDayDuration:  defaultLifecycleDayDuration,
 		diskUsageTimeout:      defaultDiskUsageTimeout,
 		lockedUploads:         make(map[string]*lockedUpload),
-		activeSiaUploads:       make(map[uint64]*activeSiaUpload),
+		activeSiaUploads:      make(map[uint64]*activeSiaUpload),
 
 		logger: zap.NewNop(),
 		tg:     threadgroup.New(),
