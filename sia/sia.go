@@ -120,6 +120,16 @@ func WithUploadThreads(n int) Option {
 	}
 }
 
+// WithUploadShardCounts sets the erasure-code shard counts used by uploads.
+// These values are used for diagnostics only; the SDK upload options remain
+// the source of truth for the actual redundancy.
+func WithUploadShardCounts(dataShards, parityShards uint8) Option {
+	return func(s *Sia) {
+		s.uploadDataShards = dataShards
+		s.uploadParityShards = parityShards
+	}
+}
+
 // Sia implements the s3.Backend interface for storing data on Sia.
 type Sia struct {
 	sdk   SDK
@@ -140,6 +150,8 @@ type Sia struct {
 	uploadOptimalSize int64
 	uploadWastePct    float64
 	uploadThreads     int
+	uploadDataShards  uint8
+	uploadParityShards uint8
 
 	lifecycleLoopInterval time.Duration
 	lifecycleDayDuration  time.Duration
@@ -173,7 +185,7 @@ type SDK interface {
 	Download(obj sdk.Object, rnge *s3.ObjectRange) (io.ReadCloser, error)
 	ObjectEvents(ctx context.Context, cursor slabs.Cursor, limit int) ([]sdk.ObjectEvent, error)
 	OptimalDataSize() (int64, error)
-	UploadPacked() (PackedUpload, error)
+	UploadPacked(opts ...sdk.UploadOption) (PackedUpload, error)
 	PinObject(ctx context.Context, obj sdk.Object) error
 	PruneSlabs(ctx context.Context, opts ...api.URLQueryParameterOption) error
 	SealObject(obj sdk.Object) sdk.SealedObject
@@ -259,6 +271,8 @@ func New(ctx context.Context, sdk SDK, store Store, directory string, opts ...Op
 		directory:             directory,
 		uploadWastePct:        DefaultUploadWastePct,
 		uploadThreads:         DefaultUploadThreads,
+		uploadDataShards:      10,
+		uploadParityShards:    20,
 		lifecycleLoopInterval: defaultLifecycleLoopInterval,
 		lifecycleDayDuration:  defaultLifecycleDayDuration,
 		diskUsageTimeout:      defaultDiskUsageTimeout,
