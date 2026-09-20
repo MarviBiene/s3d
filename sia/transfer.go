@@ -201,21 +201,23 @@ func (s *Sia) transferStatsLoop(ctx context.Context) {
 }
 
 func (s *Sia) addTransferStats(stats *s3.UploadStats) {
-	stats.S3IngressActive = s.s3IngressActive.Load()
-	stats.S3IngressBytes = s.s3IngressBytes.Load()
-	stats.S3IngressRate = s.s3IngressRate.Load()
-	stats.SiaUploadBytes = s.siaUploadBytes.Load()
-	stats.SiaUploadRate = s.siaUploadRate.Load()
+	t := &s3.TransferStats{
+		S3IngressActive: s.s3IngressActive.Load(),
+		S3IngressBytes:  s.s3IngressBytes.Load(),
+		S3IngressRate:   s.s3IngressRate.Load(),
+		SiaUploadBytes:  s.siaUploadBytes.Load(),
+		SiaUploadRate:   s.siaUploadRate.Load(),
+	}
 
 	s.diskUsageMu.Lock()
-	stats.BufferUsed = int64(s.diskUsage)
-	stats.BufferLimit = int64(s.diskUsageLimit)
+	t.BufferUsed = int64(s.diskUsage)
+	t.BufferLimit = int64(s.diskUsageLimit)
 	s.diskUsageMu.Unlock()
 
 	s.activeSiaUploadsMu.Lock()
-	stats.ActiveUploads = make([]s3.ActiveUploadStats, 0, len(s.activeSiaUploads))
+	t.ActiveUploads = make([]s3.ActiveUploadStats, 0, len(s.activeSiaUploads))
 	for _, u := range s.activeSiaUploads {
-		stats.ActiveUploads = append(stats.ActiveUploads, s3.ActiveUploadStats{
+		t.ActiveUploads = append(t.ActiveUploads, s3.ActiveUploadStats{
 			ID:       u.id,
 			Label:    u.label,
 			Objects:  u.objects,
@@ -226,8 +228,9 @@ func (s *Sia) addTransferStats(stats *s3.UploadStats) {
 	}
 	s.activeSiaUploadsMu.Unlock()
 
-	sort.Slice(stats.ActiveUploads, func(i, j int) bool {
-		return stats.ActiveUploads[i].ID < stats.ActiveUploads[j].ID
+	sort.Slice(t.ActiveUploads, func(i, j int) bool {
+		return t.ActiveUploads[i].ID < t.ActiveUploads[j].ID
 	})
-	stats.SiaUploadActive = int64(len(stats.ActiveUploads))
+	t.SiaUploadActive = int64(len(t.ActiveUploads))
+	stats.Transfer = t
 }
