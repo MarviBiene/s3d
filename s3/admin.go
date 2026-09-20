@@ -49,14 +49,14 @@ type TransferStats struct {
 
 // UploadStats contains statistics about the background upload pipeline.
 type UploadStats struct {
-	PendingObjects   int64 `json:"pendingObjects"`
-	PendingSize      int64 `json:"pendingSize"`
-	UploadedObjects  int64 `json:"uploadedObjects"`
-	UploadedSize     int64 `json:"uploadedSize"`
-	UnpinnedObjects  int64 `json:"unpinnedObjects"`
-	FailedUploads    int64 `json:"failedUploads"`
-	OrphanedObjects  int64 `json:"orphanedObjects"`
-	MultipartUploads int64 `json:"multipartUploads"`
+	PendingObjects   int64          `json:"pendingObjects"`
+	PendingSize      int64          `json:"pendingSize"`
+	UploadedObjects  int64          `json:"uploadedObjects"`
+	UploadedSize     int64          `json:"uploadedSize"`
+	UnpinnedObjects  int64          `json:"unpinnedObjects"`
+	FailedUploads    int64          `json:"failedUploads"`
+	OrphanedObjects  int64          `json:"orphanedObjects"`
+	MultipartUploads int64          `json:"multipartUploads"`
 	Transfer         *TransferStats `json:"transfer,omitempty"`
 }
 
