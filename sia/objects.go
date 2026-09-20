@@ -464,6 +464,9 @@ func (s *Sia) PutObject(ctx context.Context, accessKeyID string, bucket, object 
 	if err := s.addDiskUsage(ctx, opts.ContentLength, nil); err != nil {
 		return nil, err
 	}
+	r, finishIngress := s.trackS3Ingress(r)
+	defer finishIngress()
+
 	var objPath string
 	defer func() {
 		if err != nil {
