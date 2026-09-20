@@ -30,18 +30,9 @@ type ActiveUploadStats struct {
 	State    string `json:"state"`
 }
 
-// UploadStats contains statistics about the background upload pipeline and
-// live transfer activity. Transfer byte totals are process-lifetime counters.
-type UploadStats struct {
-	PendingObjects   int64 `json:"pendingObjects"`
-	PendingSize      int64 `json:"pendingSize"`
-	UploadedObjects  int64 `json:"uploadedObjects"`
-	UploadedSize     int64 `json:"uploadedSize"`
-	UnpinnedObjects  int64 `json:"unpinnedObjects"`
-	FailedUploads    int64 `json:"failedUploads"`
-	OrphanedObjects  int64 `json:"orphanedObjects"`
-	MultipartUploads int64 `json:"multipartUploads"`
-
+// TransferStats reports live transfer activity. Byte totals are process-lifetime
+// counters and rates are a short moving average.
+type TransferStats struct {
 	S3IngressActive int64 `json:"s3IngressActive"`
 	S3IngressBytes  int64 `json:"s3IngressBytes"`
 	S3IngressRate   int64 `json:"s3IngressRate"`
@@ -54,6 +45,19 @@ type UploadStats struct {
 	BufferLimit int64 `json:"bufferLimit"`
 
 	ActiveUploads []ActiveUploadStats `json:"activeUploads,omitempty"`
+}
+
+// UploadStats contains statistics about the background upload pipeline.
+type UploadStats struct {
+	PendingObjects   int64 `json:"pendingObjects"`
+	PendingSize      int64 `json:"pendingSize"`
+	UploadedObjects  int64 `json:"uploadedObjects"`
+	UploadedSize     int64 `json:"uploadedSize"`
+	UnpinnedObjects  int64 `json:"unpinnedObjects"`
+	FailedUploads    int64 `json:"failedUploads"`
+	OrphanedObjects  int64 `json:"orphanedObjects"`
+	MultipartUploads int64 `json:"multipartUploads"`
+	Transfer         *TransferStats `json:"transfer,omitempty"`
 }
 
 // PrometheusMetric implements the prometheus.Marshaller interface for the
@@ -92,40 +96,22 @@ func (s UploadStats) PrometheusMetric() []prometheus.Metric {
 			Name:  "s3d_upload_multipart_uploads",
 			Value: float64(s.MultipartUploads),
 		},
-		{
-			Name:  "s3d_transfer_s3_ingress_active",
-			Value: float64(s.S3IngressActive),
-		},
-		{
-			Name:  "s3d_transfer_s3_ingress_bytes_total",
-			Value: float64(s.S3IngressBytes),
-		},
-		{
-			Name:  "s3d_transfer_s3_ingress_bytes_per_second",
-			Value: float64(s.S3IngressRate),
-		},
-		{
-			Name:  "s3d_transfer_sia_upload_active",
-			Value: float64(s.SiaUploadActive),
-		},
-		{
-			Name:  "s3d_transfer_sia_upload_bytes_total",
-			Value: float64(s.SiaUploadBytes),
-		},
-		{
-			Name:  "s3d_transfer_sia_upload_bytes_per_second",
-			Value: float64(s.SiaUploadRate),
-		},
-		{
-			Name:  "s3d_upload_buffer_used_bytes",
-			Value: float64(s.BufferUsed),
-		},
-		{
-			Name:  "s3d_upload_buffer_limit_bytes",
-			Value: float64(s.BufferLimit),
-		},
 	}
-	for _, upload := range s.ActiveUploads {
+	if s.Transfer == nil {
+		return metrics
+	}
+	t := s.Transfer
+	metrics = append(metrics,
+		prometheus.Metric{Name: "s3d_transfer_s3_ingress_active", Value: float64(t.S3IngressActive)},
+		prometheus.Metric{Name: "s3d_transfer_s3_ingress_bytes_total", Value: float64(t.S3IngressBytes)},
+		prometheus.Metric{Name: "s3d_transfer_s3_ingress_bytes_per_second", Value: float64(t.S3IngressRate)},
+		prometheus.Metric{Name: "s3d_transfer_sia_upload_active", Value: float64(t.SiaUploadActive)},
+		prometheus.Metric{Name: "s3d_transfer_sia_upload_bytes_total", Value: float64(t.SiaUploadBytes)},
+		prometheus.Metric{Name: "s3d_transfer_sia_upload_bytes_per_second", Value: float64(t.SiaUploadRate)},
+		prometheus.Metric{Name: "s3d_upload_buffer_used_bytes", Value: float64(t.BufferUsed)},
+		prometheus.Metric{Name: "s3d_upload_buffer_limit_bytes", Value: float64(t.BufferLimit)},
+	)
+	for _, upload := range t.ActiveUploads {
 		labels := map[string]any{
 			"id":      fmt.Sprint(upload.ID),
 			"state":   upload.State,
