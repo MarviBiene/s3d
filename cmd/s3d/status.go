@@ -40,39 +40,43 @@ func runStatus(ctx context.Context, cmd *flag.FlagSet) {
 	fmt.Printf("  Orphaned Objects:  %d\n", stats.OrphanedObjects)
 	fmt.Printf("  Multipart Uploads: %d\n", stats.MultipartUploads)
 
-	fmt.Println()
-	fmt.Println("Transfer")
-	fmt.Printf("  S3 Ingress:          %d active · %s/s\n", stats.S3IngressActive, humanBytes(stats.S3IngressRate))
-	fmt.Printf("  Sia Upload:          %d active · %s/s logical\n", stats.SiaUploadActive, humanBytes(stats.SiaUploadRate))
-	if cfg.Sia.DataShards > 0 && cfg.Sia.ParityShards > 0 {
-		shards := int64(cfg.Sia.DataShards) + int64(cfg.Sia.ParityShards)
-		encodedRate := stats.SiaUploadRate * shards / int64(cfg.Sia.DataShards)
-		fmt.Printf("  Sia Encoded:                    ~%s/s estimated\n", humanBytes(encodedRate))
-	}
-	fmt.Printf("  Buffer Change:                  %s\n", humanRateDelta(stats.S3IngressRate-stats.SiaUploadRate))
-	fmt.Printf("  Received This Run:              %s\n", humanBytes(stats.S3IngressBytes))
-	fmt.Printf("  Sent to Sia This Run:           %s\n", humanBytes(stats.SiaUploadBytes))
+	if stats.Transfer != nil {
+		t := stats.Transfer
 
-	fmt.Println()
-	fmt.Println("Local Buffer")
-	if stats.BufferLimit > 0 {
-		pct := 100 * float64(stats.BufferUsed) / float64(stats.BufferLimit)
-		fmt.Printf("  Used:                %s / %s (%.1f%%)\n", humanBytes(stats.BufferUsed), humanBytes(stats.BufferLimit), pct)
-		fmt.Printf("  Headroom:            %s\n", humanBytes(max(stats.BufferLimit-stats.BufferUsed, 0)))
-	} else {
-		fmt.Printf("  Used:                %s (unlimited)\n", humanBytes(stats.BufferUsed))
-	}
-
-	if len(stats.ActiveUploads) > 0 {
 		fmt.Println()
-		fmt.Println("Active Sia Uploads")
-		for _, upload := range stats.ActiveUploads {
-			pct := 0.0
-			if upload.Size > 0 {
-				pct = 100 * float64(upload.Uploaded) / float64(upload.Size)
+		fmt.Println("Transfer")
+		fmt.Printf("  S3 Ingress:          %d active · %s/s\n", t.S3IngressActive, humanBytes(t.S3IngressRate))
+		fmt.Printf("  Sia Upload:          %d active · %s/s logical\n", t.SiaUploadActive, humanBytes(t.SiaUploadRate))
+		if cfg.Sia.DataShards > 0 && cfg.Sia.ParityShards > 0 {
+			shards := int64(cfg.Sia.DataShards) + int64(cfg.Sia.ParityShards)
+			encodedRate := t.SiaUploadRate * shards / int64(cfg.Sia.DataShards)
+			fmt.Printf("  Sia Encoded:                    ~%s/s estimated\n", humanBytes(encodedRate))
+		}
+		fmt.Printf("  Buffer Change:                  %s\n", humanRateDelta(t.S3IngressRate-t.SiaUploadRate))
+		fmt.Printf("  Received This Run:              %s\n", humanBytes(t.S3IngressBytes))
+		fmt.Printf("  Sent to Sia This Run:           %s\n", humanBytes(t.SiaUploadBytes))
+
+		fmt.Println()
+		fmt.Println("Local Buffer")
+		if t.BufferLimit > 0 {
+			pct := 100 * float64(t.BufferUsed) / float64(t.BufferLimit)
+			fmt.Printf("  Used:                %s / %s (%.1f%%)\n", humanBytes(t.BufferUsed), humanBytes(t.BufferLimit), pct)
+			fmt.Printf("  Headroom:            %s\n", humanBytes(max(t.BufferLimit-t.BufferUsed, 0)))
+		} else {
+			fmt.Printf("  Used:                %s (unlimited)\n", humanBytes(t.BufferUsed))
+		}
+
+		if len(t.ActiveUploads) > 0 {
+			fmt.Println()
+			fmt.Println("Active Sia Uploads")
+			for _, upload := range t.ActiveUploads {
+				pct := 0.0
+				if upload.Size > 0 {
+					pct = 100 * float64(upload.Uploaded) / float64(upload.Size)
+				}
+				fmt.Printf("  #%d  %-10s %s / %s  %5.1f%%  %s\n",
+					upload.ID, upload.State, humanBytes(upload.Uploaded), humanBytes(upload.Size), pct, upload.Label)
 			}
-			fmt.Printf("  #%d  %-10s %s / %s  %5.1f%%  %s\n",
-				upload.ID, upload.State, humanBytes(upload.Uploaded), humanBytes(upload.Size), pct, upload.Label)
 		}
 	}
 }
