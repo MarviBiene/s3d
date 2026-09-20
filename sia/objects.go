@@ -28,7 +28,13 @@ import (
 // true the reservation bypasses the limit; it is re-evaluated each time
 // releaseDiskUsage is called.
 func (s *Sia) addDiskUsage(ctx context.Context, size int64, allowExcess func() (bool, error)) error {
-	if size <= 0 || s.diskUsageLimit == 0 {
+	if size <= 0 {
+		return nil
+	}
+	if s.diskUsageLimit == 0 {
+		s.diskUsageMu.Lock()
+		s.diskUsage += uint64(size)
+		s.diskUsageMu.Unlock()
 		return nil
 	}
 	timeout := time.NewTimer(s.diskUsageTimeout)
@@ -68,10 +74,6 @@ func (s *Sia) addDiskUsage(ctx context.Context, size int64, allowExcess func() (
 // releaseDiskUsage releases size bytes previously reserved by addDiskUsage.
 // Passing 0 wakes blocked waiters without releasing any space.
 func (s *Sia) releaseDiskUsage(size int64) {
-	if s.diskUsageLimit == 0 {
-		return
-	}
-
 	s.diskUsageMu.Lock()
 	defer s.diskUsageMu.Unlock()
 	if size > 0 {
@@ -464,6 +466,9 @@ func (s *Sia) PutObject(ctx context.Context, accessKeyID string, bucket, object 
 	if err := s.addDiskUsage(ctx, opts.ContentLength, nil); err != nil {
 		return nil, err
 	}
+	r, finishIngress := s.trackS3Ingress(r)
+	defer finishIngress()
+
 	var objPath string
 	defer func() {
 		if err != nil {

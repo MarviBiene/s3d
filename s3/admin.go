@@ -19,22 +19,51 @@ type BackupSQLite3Request struct {
 	Path string `json:"path"`
 }
 
+// ActiveUploadStats reports progress for one upload group currently being
+// streamed from the local buffer into the Sia SDK.
+type ActiveUploadStats struct {
+	ID       uint64 `json:"id"`
+	Label    string `json:"label"`
+	Objects  int    `json:"objects"`
+	Size     int64  `json:"size"`
+	Uploaded int64  `json:"uploaded"`
+	State    string `json:"state"`
+}
+
+// TransferStats reports live transfer activity. Byte totals are process-lifetime
+// counters and rates are a short moving average.
+type TransferStats struct {
+	S3IngressActive int64 `json:"s3IngressActive"`
+	S3IngressBytes  int64 `json:"s3IngressBytes"`
+	S3IngressRate   int64 `json:"s3IngressRate"`
+
+	SiaUploadActive int64 `json:"siaUploadActive"`
+	SiaUploadBytes  int64 `json:"siaUploadBytes"`
+	SiaUploadRate   int64 `json:"siaUploadRate"`
+
+	BufferUsed  int64 `json:"bufferUsed"`
+	BufferLimit int64 `json:"bufferLimit"`
+
+	ActiveUploads []ActiveUploadStats `json:"activeUploads,omitempty"`
+}
+
 // UploadStats contains statistics about the background upload pipeline.
 type UploadStats struct {
-	PendingObjects   int64 `json:"pendingObjects"`
-	PendingSize      int64 `json:"pendingSize"`
-	UploadedObjects  int64 `json:"uploadedObjects"`
-	UploadedSize     int64 `json:"uploadedSize"`
-	UnpinnedObjects  int64 `json:"unpinnedObjects"`
-	FailedUploads    int64 `json:"failedUploads"`
-	OrphanedObjects  int64 `json:"orphanedObjects"`
-	MultipartUploads int64 `json:"multipartUploads"`
+	PendingObjects   int64          `json:"pendingObjects"`
+	PendingSize      int64          `json:"pendingSize"`
+	UploadedObjects  int64          `json:"uploadedObjects"`
+	UploadedSize     int64          `json:"uploadedSize"`
+	UnpinnedObjects  int64          `json:"unpinnedObjects"`
+	FailedUploads    int64          `json:"failedUploads"`
+	OrphanedObjects  int64          `json:"orphanedObjects"`
+	MultipartUploads int64          `json:"multipartUploads"`
+	Transfer         *TransferStats `json:"transfer,omitempty"`
 }
 
 // PrometheusMetric implements the prometheus.Marshaller interface for the
 // upload stats response.
 func (s UploadStats) PrometheusMetric() []prometheus.Metric {
-	return []prometheus.Metric{
+	metrics := []prometheus.Metric{
 		{
 			Name:  "s3d_upload_pending_objects",
 			Value: float64(s.PendingObjects),
@@ -68,6 +97,40 @@ func (s UploadStats) PrometheusMetric() []prometheus.Metric {
 			Value: float64(s.MultipartUploads),
 		},
 	}
+	if s.Transfer == nil {
+		return metrics
+	}
+	t := s.Transfer
+	metrics = append(metrics,
+		prometheus.Metric{Name: "s3d_transfer_s3_ingress_active", Value: float64(t.S3IngressActive)},
+		prometheus.Metric{Name: "s3d_transfer_s3_ingress_bytes_total", Value: float64(t.S3IngressBytes)},
+		prometheus.Metric{Name: "s3d_transfer_s3_ingress_bytes_per_second", Value: float64(t.S3IngressRate)},
+		prometheus.Metric{Name: "s3d_transfer_sia_upload_active", Value: float64(t.SiaUploadActive)},
+		prometheus.Metric{Name: "s3d_transfer_sia_upload_bytes_total", Value: float64(t.SiaUploadBytes)},
+		prometheus.Metric{Name: "s3d_transfer_sia_upload_bytes_per_second", Value: float64(t.SiaUploadRate)},
+		prometheus.Metric{Name: "s3d_upload_buffer_used_bytes", Value: float64(t.BufferUsed)},
+		prometheus.Metric{Name: "s3d_upload_buffer_limit_bytes", Value: float64(t.BufferLimit)},
+	)
+	for _, upload := range t.ActiveUploads {
+		labels := map[string]any{
+			"id":      fmt.Sprint(upload.ID),
+			"state":   upload.State,
+			"objects": upload.Objects,
+		}
+		metrics = append(metrics,
+			prometheus.Metric{
+				Name:   "s3d_transfer_sia_active_upload_size_bytes",
+				Labels: labels,
+				Value:  float64(upload.Size),
+			},
+			prometheus.Metric{
+				Name:   "s3d_transfer_sia_active_upload_uploaded_bytes",
+				Labels: labels,
+				Value:  float64(upload.Uploaded),
+			},
+		)
+	}
+	return metrics
 }
 
 // handlePrometheus serves the admin API metrics in the Prometheus text
