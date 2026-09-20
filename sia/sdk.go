@@ -76,8 +76,10 @@ func (s *IndexdSDK) OptimalDataSize() (int64, error) {
 }
 
 // UploadPacked creates a new packed upload.
-func (s *IndexdSDK) UploadPacked() (PackedUpload, error) {
-	return s.inner.UploadPacked(s.ulOpts...)
+func (s *IndexdSDK) UploadPacked(opts ...sdk.UploadOption) (PackedUpload, error) {
+	uploadOpts := slices.Clone(s.ulOpts)
+	uploadOpts = append(uploadOpts, opts...)
+	return s.inner.UploadPacked(uploadOpts...)
 }
 
 // PinObject pins the given object in the indexer.
