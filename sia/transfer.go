@@ -232,5 +232,10 @@ func (s *Sia) addTransferStats(stats *s3.UploadStats) {
 		return t.ActiveUploads[i].ID < t.ActiveUploads[j].ID
 	})
 	t.SiaUploadActive = int64(len(t.ActiveUploads))
+	if t.S3IngressActive == 0 && t.S3IngressBytes == 0 && t.S3IngressRate == 0 &&
+		t.SiaUploadActive == 0 && t.SiaUploadBytes == 0 && t.SiaUploadRate == 0 &&
+		t.BufferUsed == 0 && t.BufferLimit == 0 {
+		return
+	}
 	stats.Transfer = t
 }
