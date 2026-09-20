@@ -124,7 +124,6 @@ func humanBytes(n int64) string {
 	return fmt.Sprintf("%.2f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
-
 func humanRateDelta(n int64) string {
 	if n > 0 {
 		return "+" + humanBytes(n) + "/s"
