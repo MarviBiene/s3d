@@ -169,10 +169,15 @@ p { color:#9da7b3; line-height:1.5; }
 .panel { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:18px; margin-top:16px; }
 .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
 .card { background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:13px; }
+.cardLink { display:block; color:inherit; text-decoration:none; transition:border-color .15s, background .15s; }
+.cardLink:hover,.cardLink:focus { border-color:#58a6ff; background:#111820; outline:none; }
+.cardHint { color:#58a6ff; font-size:12px; margin-top:7px; }
 .label { color:#8b949e; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
 .value { font-size:22px; font-weight:650; margin-top:5px; }
-.controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; align-items:end; }
+.controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; align-items:start; }
 label { display:block; color:#c9d1d9; font-size:13px; }
+.controlTitle { display:block; font-weight:600; }
+.help { display:block; margin-top:8px; color:#8b949e; font-size:12px; line-height:1.45; }
 input { margin-top:7px; width:100%; box-sizing:border-box; padding:9px 10px; border-radius:6px; border:1px solid #30363d; background:#0d1117; color:#e6edf3; }
 button { padding:9px 15px; border-radius:6px; border:1px solid #3b82f6; background:#1f6feb; color:white; cursor:pointer; font-weight:600; }
 button.secondary { background:#21262d; border-color:#30363d; }
@@ -201,14 +206,20 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 
 <div class="panel">
   <div class="controls">
-    <label>Slab fill threshold (%)
+    <label>
+      <span class="controlTitle">Slab fill threshold (%)</span>
       <input id="fill" type="number" min="0.1" max="99" step="0.1" value="10">
+      <span class="help">Only slabs with less than this percentage of live data are candidates. Lower values target emptier slabs and usually reclaim more space per byte re-uploaded. Example: at 10%, a 96 MiB slab must contain less than 9.6 MiB of live data.</span>
     </label>
-    <label>Max object size (MiB)
+    <label>
+      <span class="controlTitle">Max object size (MiB)</span>
       <input id="maxObject" type="number" min="1" step="1" value="10">
+      <span class="help">Safety limit for objects that would need to be rewritten. If a candidate slab references any live object larger than this value, that entire slab is skipped. Raise it to consider more slabs, but large objects can cause much more download and re-upload traffic.</span>
     </label>
-    <label>Re-upload budget (GiB)
+    <label>
+      <span class="controlTitle">Re-upload budget (GiB)</span>
       <input id="budget" type="number" min="0.01" step="0.1" value="1">
+      <span class="help">Maximum total size of complete objects this repack run may rewrite. It is a traffic/work limit, not the amount of waste reclaimed. When adding another slab would exceed the budget, that slab is skipped.</span>
     </label>
   </div>
   <div class="actions">
@@ -216,7 +227,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
     <button id="start">Start repack</button>
     <button id="cancel" class="danger" disabled>Cancel</button>
   </div>
-  <p class="note">The budget counts complete Sia objects, not only the live bytes inside the sparse slab. Repacking causes Sia download/upload traffic and does not refund storage already paid on old contracts. Snapshot protection and the normal orphan/prune cleanup remain active.</p>
+  <p class="note"><b>How to use these:</b> start with the defaults and click Preview. A lower fill threshold is more selective, a higher max object size allows more candidates, and a higher re-upload budget lets one run process more data. Preview does not modify anything. Repacking causes Sia download/upload traffic and does not refund storage already paid on old contracts. Snapshot protection and normal orphan/prune cleanup remain active.</p>
 </div>
 
 <h2>Current waste</h2>
@@ -262,6 +273,10 @@ function esc(v) {
   return String(v).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 function card(label,value) { return '<div class="card"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div></div>'; }
+function cardLink(label,value,href,hint) {
+  return '<a class="card cardLink" href="'+esc(href)+'"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div>'+
+    (hint ? '<div class="cardHint">'+esc(hint)+'</div>' : '')+'</a>';
+}
 function duration(ms) {
   if (!Number.isFinite(ms) || ms < 0) return "-";
   const total=Math.floor(ms/1000), s=total%60, m=Math.floor(total/60)%60, h=Math.floor(total/3600);
@@ -362,7 +377,7 @@ async function transferStats() {
       card("Pending", (s.pendingObjects || 0).toLocaleString()+" · "+bytes(s.pendingSize || 0))+
       card("Uploaded", (s.uploadedObjects || 0).toLocaleString()+" · "+bytes(s.uploadedSize || 0))+
       card("Orphaned", (s.orphanedObjects || 0).toLocaleString())+
-      card("Failed uploads", (s.failedUploads || 0).toLocaleString())+
+      cardLink("Failed uploads", (s.failedUploads || 0).toLocaleString(), "/diagnostics/uploads", "Open diagnostics →")+
       card("Sia sent this run", bytes(t.uploadBytes || 0));
     const active=t.activeUploads || [];
     latestRepackUpload=active.find(u => u.label==="slab repack") || null;
