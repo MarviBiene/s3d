@@ -255,6 +255,7 @@ func (s *Sia) StartRepack(ctx context.Context, opts s3.RepackOptions) (s3.Repack
 
 	status := s3.RepackStatus{
 		State:                    "running",
+		Phase:                    "rewriting",
 		Options:                  opts,
 		StartedAt:                time.Now(),
 		ObjectsTotal:             len(plan.objects),
@@ -291,6 +292,11 @@ func (s *Sia) StartRepack(ctx context.Context, opts s3.RepackOptions) (s3.Repack
 			s.repackStatus.Error = err.Error()
 		default:
 			s.repackStatus.State = "completed"
+			s.repackStatus.Phase = "completed"
+			s.repackStatus.CurrentObject = ""
+			s.repackStatus.CurrentObjectID = ""
+			s.repackStatus.CurrentObjectIndex = 0
+			s.repackStatus.CurrentObjectSize = 0
 			s.repackStatus.ObjectsCompleted = s.repackStatus.ObjectsTotal
 			s.repackStatus.RewrittenBytes = s.repackStatus.RewriteBytes
 		}
@@ -326,9 +332,34 @@ func (s *Sia) RepackStatus(_ context.Context) (s3.RepackStatus, error) {
 	return status, nil
 }
 
-func (s *Sia) addRepackProgress(bytes int64) {
+func (s *Sia) setRepackPhase(phase string) {
+	s.repackMu.Lock()
+	s.repackStatus.Phase = phase
+	s.repackStatus.CurrentObject = ""
+	s.repackStatus.CurrentObjectID = ""
+	s.repackStatus.CurrentObjectIndex = 0
+	s.repackStatus.CurrentObjectSize = 0
+	s.repackMu.Unlock()
+}
+
+func (s *Sia) setRepackCurrent(phase string, index int, ref objects.RepackObjectRef) {
+	label := ref.Label
+	if label == "" {
+		label = fmt.Sprint(ref.ID)
+	}
+	s.repackMu.Lock()
+	s.repackStatus.Phase = phase
+	s.repackStatus.CurrentObject = label
+	s.repackStatus.CurrentObjectID = fmt.Sprint(ref.ID)
+	s.repackStatus.CurrentObjectIndex = index
+	s.repackStatus.CurrentObjectSize = ref.Size
+	s.repackMu.Unlock()
+}
+
+func (s *Sia) addRepackProgress(bytes int64, objectsCompleted int) {
 	s.repackMu.Lock()
 	s.repackStatus.RewrittenBytes += bytes
+	s.repackStatus.ObjectsCompleted = objectsCompleted
 	s.repackMu.Unlock()
 }
 
@@ -359,8 +390,17 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 	}
 	defer upload.Close()
 
+	active := s.beginNamedSiaUpload("slab repack", len(plan.objects), plan.preview.RewriteBytes)
+	activeEnded := false
+	defer func() {
+		if !activeEnded {
+			s.endSiaUpload(active)
+		}
+	}()
+
 	oldObjects := make([]objects.SiaObject, 0, len(plan.objects))
-	for _, ref := range plan.objects {
+	for i, ref := range plan.objects {
+		s.setRepackCurrent("rewriting", i+1, ref)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -377,6 +417,7 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 		if err != nil {
 			return fmt.Errorf("failed to download repack source %v: %w", ref.ID, err)
 		}
+		rc = s.trackSiaUploadReader(rc, active)
 		n, addErr := upload.Add(ctx, rc)
 		closeErr := rc.Close()
 		if addErr != nil {
@@ -387,15 +428,19 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 			return fmt.Errorf("repack source %v changed size: expected %d, got %d", ref.ID, ref.Size, n)
 		}
 		oldObjects = append(oldObjects, stored)
-		s.addRepackProgress(n)
+		s.addRepackProgress(n, i+1)
 	}
 
+	s.setRepackPhase("finalizing")
+	active.state.Store(activeUploadStateFinalizing)
 	results, err := upload.Finalize(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to finalize repack upload: %w", err)
 	} else if len(results) != len(oldObjects) {
 		return fmt.Errorf("repack finalize returned %d objects for %d sources", len(results), len(oldObjects))
 	}
+	s.endSiaUpload(active)
+	activeEnded = true
 
 	// Pin every replacement before changing any local reference. If any pin
 	// fails, remove the already-pinned replacements and leave the old objects
@@ -403,6 +448,7 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 	replacements := make([]objects.RepackReplacement, 0, len(results))
 	pinned := make([]types.Hash256, 0, len(results))
 	for i, result := range results {
+		s.setRepackCurrent("pinning", i+1, plan.objects[i])
 		if err := ctx.Err(); err != nil {
 			s.cleanupRepackPins(pinned)
 			return err
@@ -421,6 +467,7 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 
 	// One SQLite transaction switches every reference. Until this succeeds all
 	// S3 versions still point at the old, already-pinned objects.
+	s.setRepackPhase("committing")
 	if err := s.store.ReplaceSiaObjects(replacements); err != nil {
 		s.cleanupRepackPins(pinned)
 		return fmt.Errorf("failed to commit repack metadata: %w", err)
@@ -433,6 +480,7 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 	// The old IDs are now in orphaned_objects. Unpin them immediately; slab
 	// deletion itself remains subject to the normal one-hour safety cutoff in
 	// processOrphansLoop.
+	s.setRepackPhase("cleanup")
 	s.ProcessOrphans(ctx)
 	return nil
 }
