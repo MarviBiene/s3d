@@ -416,14 +416,25 @@ func (s *Sia) cleanupRepackPins(ids []types.Hash256) {
 }
 
 func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
-	upload, err := s.sdk.UploadPacked(ctx, sdk.WithUploadProgress(s.shardProgress))
+	active := s.transfer.beginNamedUpload("slab repack", int64(len(plan.objects)), plan.preview.RewriteBytes)
+	s.configureActiveUpload(active, plan.preview.RewriteBytes)
+	activeEnded := false
+	defer func() {
+		if !activeEnded {
+			s.transfer.endUpload(active)
+		}
+	}()
+
+	progress := func(p sdk.ShardProgress) {
+		s.shardProgress(p)
+		active.recordShardProgress(p)
+	}
+	upload, err := s.sdk.UploadPacked(ctx, sdk.WithUploadProgress(progress))
 	if err != nil {
 		return fmt.Errorf("failed to create repack upload: %w", err)
 	}
 	defer upload.Close()
 
-	active := s.transfer.beginNamedUpload("slab repack", int64(len(plan.objects)), plan.preview.RewriteBytes)
-	activeEnded := false
 	defer func() {
 		if !activeEnded {
 			s.transfer.endUpload(active)
