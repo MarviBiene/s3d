@@ -174,6 +174,10 @@ type Sia struct {
 	activeSiaUploads   map[uint64]*activeSiaUpload
 	nextSiaUploadID    atomic.Uint64
 
+	repackMu     sync.Mutex
+	repackStatus s3.RepackStatus
+	repackCancel context.CancelFunc
+
 	tg     *threadgroup.ThreadGroup
 	logger *zap.Logger
 }
@@ -251,6 +255,11 @@ type Store interface {
 	ListParts(accessKeyID, bucket, name string, uploadID s3.UploadID, partNumberMarker int, maxParts int64) (*s3.ListPartsResult, error)
 	MultipartParts(accessKeyID, bucket, name string, uploadID s3.UploadID) ([]objects.Part, error)
 	UploadStats() (s3.UploadStats, error)
+
+	RepackSnapshot() (objects.RepackSnapshot, error)
+	SiaObject(id types.Hash256) (objects.SiaObject, error)
+	ReplaceSiaObjects(replacements []objects.RepackReplacement) error
+	QueueOrphanedObject(id types.Hash256) error
 
 	PutBucketLifecycleConfiguration(accessKeyID, bucket, config string) error
 	GetBucketLifecycleConfiguration(accessKeyID, bucket string) (string, error)

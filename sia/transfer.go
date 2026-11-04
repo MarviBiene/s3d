@@ -113,17 +113,12 @@ func (s *Sia) trackS3Ingress(r io.Reader) (io.Reader, func()) {
 	}
 }
 
-func (s *Sia) beginSiaUpload(group uploadGroup) *activeSiaUpload {
-	label := fmt.Sprintf("%d objects", len(group.objects))
-	if len(group.objects) == 1 {
-		label = group.objects[0].Bucket + "/" + group.objects[0].Name
-	}
-
+func (s *Sia) beginNamedSiaUpload(label string, objectCount int, size int64) *activeSiaUpload {
 	u := &activeSiaUpload{
 		id:      s.nextSiaUploadID.Add(1),
 		label:   label,
-		objects: len(group.objects),
-		size:    group.totalSize,
+		objects: objectCount,
+		size:    size,
 	}
 	u.state.Store(activeUploadStateUploading)
 
@@ -131,6 +126,14 @@ func (s *Sia) beginSiaUpload(group uploadGroup) *activeSiaUpload {
 	s.activeSiaUploads[u.id] = u
 	s.activeSiaUploadsMu.Unlock()
 	return u
+}
+
+func (s *Sia) beginSiaUpload(group uploadGroup) *activeSiaUpload {
+	label := fmt.Sprintf("%d objects", len(group.objects))
+	if len(group.objects) == 1 {
+		label = group.objects[0].Bucket + "/" + group.objects[0].Name
+	}
+	return s.beginNamedSiaUpload(label, len(group.objects), group.totalSize)
 }
 
 func (s *Sia) endSiaUpload(u *activeSiaUpload) {
