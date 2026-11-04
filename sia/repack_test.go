@@ -53,7 +53,7 @@ func TestBuildRepackPlan(t *testing.T) {
 		MaxObjectSize:      10 << 20,
 		ReuploadBudget:     4 << 20,
 	}
-	plan := buildRepackPlan(snapshot, opts)
+	plan := buildRepackPlan(snapshot, opts, 96<<20, 24, 24)
 
 	if plan.preview.Slabs != 3 {
 		t.Fatalf("expected 3 slabs, got %d", plan.preview.Slabs)
@@ -105,7 +105,7 @@ func TestBuildRepackPlanBudget(t *testing.T) {
 		MaxSlabFillPercent: 10,
 		MaxObjectSize:      10 << 20,
 		ReuploadBudget:     2 << 20,
-	})
+	}, 96<<20, 24, 24)
 	if plan.preview.SelectedSlabs != 1 {
 		t.Fatalf("expected one selected slab, got %d", plan.preview.SelectedSlabs)
 	} else if plan.preview.SkippedBudgetSlabs != 1 {
@@ -129,7 +129,7 @@ func TestBuildRepackPlanBusyObject(t *testing.T) {
 		MaxSlabFillPercent: 10,
 		MaxObjectSize:      10 << 20,
 		ReuploadBudget:     1 << 30,
-	})
+	}, 96<<20, 24, 24)
 	if plan.preview.SelectedSlabs != 0 || plan.preview.BusySlabs != 1 {
 		t.Fatalf("expected busy slab to be skipped: selected=%d busy=%d",
 			plan.preview.SelectedSlabs, plan.preview.BusySlabs)
