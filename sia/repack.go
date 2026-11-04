@@ -345,12 +345,12 @@ func (s *Sia) setRepackPhase(phase string) {
 func (s *Sia) setRepackCurrent(phase string, index int, ref objects.RepackObjectRef) {
 	label := ref.Label
 	if label == "" {
-		label = fmt.Sprint(ref.ID)
+		label = ref.ID.String()
 	}
 	s.repackMu.Lock()
 	s.repackStatus.Phase = phase
 	s.repackStatus.CurrentObject = label
-	s.repackStatus.CurrentObjectID = fmt.Sprint(ref.ID)
+	s.repackStatus.CurrentObjectID = ref.ID.String()
 	s.repackStatus.CurrentObjectIndex = index
 	s.repackStatus.CurrentObjectSize = ref.Size
 	s.repackMu.Unlock()
