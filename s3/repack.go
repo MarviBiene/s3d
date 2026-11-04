@@ -336,9 +336,12 @@ async function status() {
       pct=Math.min(100,100*(latestRepackUpload.physicalSent || 0)/latestRepackUpload.expectedPhysical);
     }
     $("bar").style.width=pct+"%";
+    const siaProgress=(s.phase==="finalizing" && latestRepackUpload && latestRepackUpload.expectedPhysical)
+      ? ' · Sia '+bytes(latestRepackUpload.physicalSent || 0)+' / '+bytes(latestRepackUpload.expectedPhysical)+' minimum'
+      : '';
     $("jobText").innerHTML =
       '<b>'+s.state+'</b> · '+phaseLabel(s.phase)+' · '+s.objectsCompleted+'/'+s.objectsTotal+' objects · '+
-      bytes(s.rewrittenBytes)+' / '+bytes(s.rewriteBytes)+
+      'source '+bytes(s.rewrittenBytes)+' / '+bytes(s.rewriteBytes)+siaProgress+
       (s.estimatedLogicalReclaim ? ' · est. reclaim '+bytes(s.estimatedLogicalReclaim)+' logical' : '');
     $("jobDetail").textContent = s.currentObject
       ? 'Current object '+(s.currentObjectIndex || 0)+'/'+s.objectsTotal+' · '+s.currentObject+
@@ -366,13 +369,17 @@ async function transferStats() {
       const sourcePct=u.size>0 ? Math.min(100,100*(u.sent || 0)/u.size) : 0;
       const physicalPct=u.expectedPhysical>0 ? Math.min(100,100*(u.physicalSent || 0)/u.expectedPhysical) : 0;
       const state=u.finalizing ? "finalizing" : "uploading";
-      const retry=u.observedRetryShards || 0;
+      const observedRetry=u.observedRetryShards || 0;
       const extraPhysical=Math.max(0,(u.physicalSent || 0)-(u.expectedPhysical || 0));
+      const shardSize=(u.expectedShards>0 && u.expectedPhysical>0) ? u.expectedPhysical/u.expectedShards : 0;
+      const inferredRetry=shardSize>0 ? Math.floor(extraPhysical/shardSize) : 0;
+      const retry=Math.max(observedRetry,inferredRetry);
+      const retryPhysical=Math.max(u.retryBytes || 0,extraPhysical);
       let retryLine="";
-      if (retry>0 || extraPhysical>0) {
+      if (retry>0 || retryPhysical>0) {
         retryLine='<div class="uploadLine retry"><b>Retry activity:</b> '+
-          esc(retry)+' observed shard re-upload'+(retry===1?'':'s')+
-          ' · '+esc(bytes(u.retryBytes || extraPhysical))+
+          esc(retry)+' successful shard re-upload'+(retry===1?'':'s')+
+          ' · '+esc(bytes(retryPhysical))+
           ' · '+esc(u.retriedSlabs || 0)+' slab'+((u.retriedSlabs || 0)===1?'':'s')+
           (u.maxSlabAttempt>1 ? ' · max attempt '+esc(u.maxSlabAttempt) : '')+
           '</div>';
