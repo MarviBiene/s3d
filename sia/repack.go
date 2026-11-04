@@ -72,7 +72,7 @@ func repackSlabPhysicalWaste(slab objects.RepackSlab) int64 {
 	return waste * int64(slab.TotalShards) / int64(slab.MinShards)
 }
 
-func buildRepackPlan(snapshot objects.RepackSnapshot, opts s3.RepackOptions) repackPlan {
+func buildRepackPlan(snapshot objects.RepackSnapshot, opts s3.RepackOptions, newSlabSize int64, newDataShards, newParityShards int) repackPlan {
 	preview := s3.RepackPreview{Options: opts}
 	for _, slab := range snapshot.Slabs {
 		logicalCapacity := repackSlabCapacity(slab)
@@ -107,7 +107,7 @@ func buildRepackPlan(snapshot objects.RepackSnapshot, opts s3.RepackOptions) rep
 
 	selected := make(map[types.Hash256]objects.RepackObjectRef)
 	var selectedOrder []types.Hash256
-	var selectedBytes int64
+	var selectedBytes, selectedLogicalCapacity, selectedPhysicalCapacity int64
 
 	for _, slab := range slabs {
 		capacity := repackSlabCapacity(slab)
@@ -168,8 +168,8 @@ func buildRepackPlan(snapshot objects.RepackSnapshot, opts s3.RepackOptions) rep
 			}
 		}
 		preview.SelectedSlabs++
-		preview.EstimatedLogicalReclaim += repackSlabWaste(slab)
-		preview.EstimatedPhysicalReclaim += repackSlabPhysicalWaste(slab)
+		selectedLogicalCapacity += repackSlabCapacity(slab)
+		selectedPhysicalCapacity += repackSlabPhysicalCapacity(slab)
 	}
 
 	planObjects := make([]objects.RepackObjectRef, 0, len(selectedOrder))
@@ -178,6 +178,24 @@ func buildRepackPlan(snapshot objects.RepackSnapshot, opts s3.RepackOptions) rep
 	}
 	preview.ObjectsToRewrite = len(planObjects)
 	preview.RewriteBytes = selectedBytes
+
+	// Estimate net reclaim conservatively: selected sparse slabs are guaranteed
+	// to become unreferenced, while all rewritten bytes must be packed into new
+	// slabs. Slabs outside the selected set that also become unreferenced are
+	// deliberately not counted, so the real reclaim may be higher.
+	if len(planObjects) > 0 && newSlabSize > 0 {
+		newSlabs := (selectedBytes + newSlabSize - 1) / newSlabSize
+		newLogicalCapacity := newSlabs * newSlabSize
+		if selectedLogicalCapacity > newLogicalCapacity {
+			preview.EstimatedLogicalReclaim = selectedLogicalCapacity - newLogicalCapacity
+		}
+		if newDataShards > 0 && newParityShards >= 0 {
+			newPhysicalCapacity := newSlabs * int64(newDataShards+newParityShards) * int64(proto.SectorSize)
+			if selectedPhysicalCapacity > newPhysicalCapacity {
+				preview.EstimatedPhysicalReclaim = selectedPhysicalCapacity - newPhysicalCapacity
+			}
+		}
+	}
 	return repackPlan{preview: preview, objects: planObjects}
 }
 
@@ -195,7 +213,7 @@ func (s *Sia) RepackPreview(ctx context.Context, opts s3.RepackOptions) (s3.Repa
 	if err != nil {
 		return s3.RepackPreview{}, fmt.Errorf("failed to load repack snapshot: %w", err)
 	}
-	return buildRepackPlan(snapshot, opts).preview, nil
+	return buildRepackPlan(snapshot, opts, s.uploadOptimalSize, int(s.uploadDataShards), int(s.uploadParityShards)).preview, nil
 }
 
 func (s *Sia) repackIsRunning() bool {
@@ -224,7 +242,7 @@ func (s *Sia) StartRepack(ctx context.Context, opts s3.RepackOptions) (s3.Repack
 	if err != nil {
 		return s3.RepackStatus{}, fmt.Errorf("failed to load repack snapshot: %w", err)
 	}
-	plan := buildRepackPlan(snapshot, opts)
+	plan := buildRepackPlan(snapshot, opts, s.uploadOptimalSize, int(s.uploadDataShards), int(s.uploadParityShards))
 	if len(plan.objects) == 0 {
 		return s3.RepackStatus{}, s3.ErrNoRepackCandidates
 	}
