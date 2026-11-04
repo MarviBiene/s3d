@@ -389,7 +389,7 @@ async function transferStats() {
         (u.retryDetails || []).map(r => '<div>Slab '+esc(r.slabIndex)+' · shard '+esc(r.shardIndex)+
           ' · '+esc(r.successfulUploads)+' successful writes'+
           (r.lastHost ? ' · host '+esc(shortHost(r.lastHost)) : '')+
-          (r.lastElapsedMS ? ' · '+esc(duration(r.lastElapsedMS)) : '')+
+          (r.lastElapsedMs ? ' · '+esc(duration(r.lastElapsedMs)) : '')+
           '</div>').join("")+'</details>' : '';
       return '<div class="uploadRow"><b>'+esc(u.label)+'</b> · '+esc(state)+' · '+esc(u.objects)+' objects'+
         '<div class="uploadLine">Source: '+esc(bytes(u.sent || 0))+' / '+esc(bytes(u.size || 0))+
@@ -401,7 +401,7 @@ async function transferStats() {
         '<div class="miniProgress"><div style="width:'+esc(physicalPct.toFixed(2))+'%"></div></div>'+
         '<div class="uploadLine">Shard writes: '+esc(u.shardUploads || 0)+
         (u.expectedShards ? ' · observed unique '+esc(u.observedUniqueShards || 0)+' / '+esc(u.expectedShards) : '')+
-        (u.finalizing ? ' · finalizing '+esc(duration(u.finalizingForMS || 0)) : '')+
+        (u.finalizing ? ' · finalizing '+esc(duration(u.finalizingForMs || 0)) : '')+
         '</div>'+retryLine+retryDetails+'</div>';
     }).join("") : "None";
   } catch(e) {
