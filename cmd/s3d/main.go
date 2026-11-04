@@ -372,7 +372,13 @@ func main() {
 	defer builder.Close()
 	// The SDK's logger is process-wide rather than per-instance, so it is
 	// installed once here instead of being passed as a construction option.
-	sdk.SetLogger(log.Named("sdk"))
+	// A dedicated diagnostics core observes SDK debug events even when normal
+	// output logging remains at info level.
+	uploadDiagnostics := sia.NewSDKUploadDiagnostics()
+	sdkLogger := log.Named("sdk").WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
+		return zapcore.NewTee(core, uploadDiagnostics.Core())
+	}))
+	sdk.SetLogger(sdkLogger)
 	sdkClient, err := builder.Connect(ctx, appKey)
 	if err != nil {
 		checkFatalError("failed to create SDK client", err)
@@ -388,6 +394,7 @@ func main() {
 		sia.WithUploadThreads(cfg.Sia.UploadThreads),
 		sia.WithUploadDeadline(cfg.Sia.UploadDeadline),
 		sia.WithUploadShardCounts(cfg.Sia.DataShards, cfg.Sia.ParityShards),
+		sia.WithUploadDiagnostics(uploadDiagnostics),
 		sia.WithLogger(log.Named("backend")))
 	if err != nil {
 		checkFatalError("failed to create Sia backend", err)
@@ -439,7 +446,9 @@ func main() {
 	}
 	defer adminListener.Close()
 
-	adminHandler := adminBasicAuth(cfg.AdminPassword)(s3.NewAdmin(backend, s3.WithLogger(log)))
+	adminHandler := adminBasicAuth(cfg.AdminPassword)(s3.NewAdmin(backend,
+		s3.WithLogger(log),
+		s3.WithUploadDiagnostics(uploadDiagnostics)))
 	adminServer := &http.Server{
 		Handler:     adminHandler,
 		ReadTimeout: 30 * time.Second,
