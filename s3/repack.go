@@ -62,13 +62,14 @@ type RepackStatus struct {
 	StartedAt  time.Time     `json:"startedAt,omitempty"`
 	FinishedAt time.Time     `json:"finishedAt,omitempty"`
 
-	ObjectsTotal        int    `json:"objectsTotal"`
-	ObjectsCompleted    int    `json:"objectsCompleted"`
-	CurrentObject       string `json:"currentObject,omitempty"`
-	CurrentObjectIndex  int    `json:"currentObjectIndex,omitempty"`
-	CurrentObjectSize   int64  `json:"currentObjectSize,omitempty"`
-	RewriteBytes        int64  `json:"rewriteBytes"`
-	RewrittenBytes      int64  `json:"rewrittenBytes"`
+	ObjectsTotal       int    `json:"objectsTotal"`
+	ObjectsCompleted   int    `json:"objectsCompleted"`
+	CurrentObject      string `json:"currentObject,omitempty"`
+	CurrentObjectID    string `json:"currentObjectID,omitempty"`
+	CurrentObjectIndex int    `json:"currentObjectIndex,omitempty"`
+	CurrentObjectSize  int64  `json:"currentObjectSize,omitempty"`
+	RewriteBytes       int64  `json:"rewriteBytes"`
+	RewrittenBytes     int64  `json:"rewrittenBytes"`
 
 	EstimatedLogicalReclaim  int64  `json:"estimatedLogicalReclaim"`
 	EstimatedPhysicalReclaim int64  `json:"estimatedPhysicalReclaim"`
@@ -317,7 +318,8 @@ async function status() {
       bytes(s.rewrittenBytes)+' / '+bytes(s.rewriteBytes)+
       (s.estimatedLogicalReclaim ? ' · est. reclaim '+bytes(s.estimatedLogicalReclaim)+' logical' : '');
     $("jobDetail").textContent = s.currentObject
-      ? 'Current object '+(s.currentObjectIndex || 0)+'/'+s.objectsTotal+' · '+s.currentObject+' · '+bytes(s.currentObjectSize || 0)
+      ? 'Current object '+(s.currentObjectIndex || 0)+'/'+s.objectsTotal+' · '+s.currentObject+
+        ' · '+bytes(s.currentObjectSize || 0)+(s.currentObjectID ? ' · '+s.currentObjectID : '')
       : '';
     $("jobError").textContent=s.error || "";
   } catch(e) { $("jobError").textContent=e.message; }
