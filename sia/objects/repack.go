@@ -10,6 +10,7 @@ import (
 // while the object is still in the upload/pin pipeline.
 type RepackObjectRef struct {
 	ID    types.Hash256
+	Label string
 	Size  int64
 	Ready bool
 }
