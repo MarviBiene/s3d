@@ -435,12 +435,6 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 	}
 	defer upload.Close()
 
-	defer func() {
-		if !activeEnded {
-			s.transfer.endUpload(active)
-		}
-	}()
-
 	oldObjects := make([]objects.SiaObject, 0, len(plan.objects))
 	for i, ref := range plan.objects {
 		s.setRepackCurrent("rewriting", i+1, ref)
