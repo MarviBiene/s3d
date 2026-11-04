@@ -17,11 +17,11 @@ type RepackObjectRef struct {
 // RepackSlab describes the live occupancy of one slab and the Sia objects that
 // currently reference it.
 type RepackSlab struct {
-	ID            types.Hash256
-	MinShards     int
-	TotalShards   int
-	LiveBytes     int64
-	ObjectRefs    []RepackObjectRef
+	ID          types.Hash256
+	MinShards   int
+	TotalShards int
+	LiveBytes   int64
+	ObjectRefs  []RepackObjectRef
 }
 
 // RepackSnapshot is a point-in-time view of all slabs used to compute repack
