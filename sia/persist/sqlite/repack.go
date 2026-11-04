@@ -200,3 +200,22 @@ func (s *Store) ReplaceSiaObjects(replacements []objects.RepackReplacement) erro
 		return nil
 	})
 }
+
+// QueueOrphanedObject records an indexd object ID for asynchronous cleanup.
+// It is used for replacements that were pinned successfully but could not be
+// committed to the local metadata database.
+func (s *Store) QueueOrphanedObject(id types.Hash256) error {
+	return s.transaction(func(tx *txn) error {
+		res, err := tx.Exec(`INSERT OR IGNORE INTO orphaned_objects (sia_object_id) VALUES ($1)`, sqlHash256(id))
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		} else if n == 0 {
+			return nil
+		}
+		return incrementStat(tx, statOrphanedObjects, 1)
+	})
+}
