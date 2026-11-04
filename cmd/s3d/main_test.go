@@ -1,11 +1,58 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 )
+
+func TestAdminBasicAuth(t *testing.T) {
+	const password = "secret"
+	handler := adminBasicAuth(password)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	tests := []struct {
+		name          string
+		username      string
+		password      string
+		setAuth       bool
+		wantStatus    int
+		wantChallenge bool
+	}{
+		{name: "missing credentials", wantStatus: http.StatusUnauthorized, wantChallenge: true},
+		{name: "wrong password", username: "admin", password: "wrong", setAuth: true, wantStatus: http.StatusUnauthorized, wantChallenge: true},
+		{name: "correct password with username", username: "admin", password: password, setAuth: true, wantStatus: http.StatusNoContent},
+		{name: "correct password without username", password: password, setAuth: true, wantStatus: http.StatusNoContent},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/repack", nil)
+			if tc.setAuth {
+				req.SetBasicAuth(tc.username, tc.password)
+			}
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("expected status %d, got %d", tc.wantStatus, rec.Code)
+			}
+			challenge := rec.Header().Get("WWW-Authenticate")
+			if tc.wantChallenge {
+				if challenge != adminAuthChallenge {
+					t.Fatalf("expected challenge %q, got %q", adminAuthChallenge, challenge)
+				}
+			} else if challenge != "" {
+				t.Fatalf("unexpected challenge %q", challenge)
+			}
+		})
+	}
+}
 
 func TestValidateServerConfig(t *testing.T) {
 	valid := Config{
