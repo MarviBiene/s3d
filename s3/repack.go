@@ -249,7 +249,10 @@ function options() {
     reuploadBudget: Math.round(Number($("budget").value)*GiB)
   };
 }
-function card(label,value) { return '<div class="card"><div class="label">'+label+'</div><div class="value">'+value+'</div></div>'; }
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+}
+function card(label,value) { return '<div class="card"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div></div>'; }
 async function json(url, init) {
   const r=await fetch(url, init);
   const t=await r.text();
@@ -340,9 +343,9 @@ async function transferStats() {
     const active=t.activeUploads || [];
     $("activeUploads").innerHTML = active.length ? active.map(u => {
       const p=u.size>0 ? Math.min(100,100*u.uploaded/u.size) : 0;
-      return '<div style="margin:8px 0"><b>#'+u.id+' '+u.label+'</b> · '+u.state+
-        ' · '+u.objects+' objects · '+bytes(u.uploaded)+' / '+bytes(u.size)+
-        ' ('+p.toFixed(1)+'%)</div>';
+      return '<div style="margin:8px 0"><b>#'+esc(u.id)+' '+esc(u.label)+'</b> · '+esc(u.state)+
+        ' · '+esc(u.objects)+' objects · '+esc(bytes(u.uploaded))+' / '+esc(bytes(u.size))+
+        ' ('+esc(p.toFixed(1))+'%)</div>';
     }).join("") : "None";
   } catch(e) {
     $("activeUploads").textContent="Transfer stats unavailable: "+e.message;
