@@ -431,6 +431,9 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 	}
 	upload, err := s.sdk.UploadPacked(ctx, sdk.WithUploadProgress(progress))
 	if err != nil {
+		if s.uploadDiagnostics != nil {
+			s.uploadDiagnostics.RecordUploadFailure("slab repack", "start", err)
+		}
 		return fmt.Errorf("failed to create repack upload: %w", err)
 	}
 	defer upload.Close()
@@ -473,6 +476,9 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 	active.finalize()
 	results, err := upload.Finalize()
 	if err != nil {
+		if s.uploadDiagnostics != nil {
+			s.uploadDiagnostics.RecordUploadFailure("slab repack", "finalize", err)
+		}
 		return fmt.Errorf("failed to finalize repack upload: %w", err)
 	} else if len(results) != len(oldObjects) {
 		return fmt.Errorf("repack finalize returned %d objects for %d sources", len(results), len(oldObjects))
