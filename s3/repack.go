@@ -197,6 +197,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 <main>
 <h1>Slab Repacker</h1>
 <p>Measure packed-slab waste and rewrite only the live objects needed to release sparse slabs. Old object references remain intact until every replacement has been uploaded and pinned.</p>
+<p class="note"><a href="/diagnostics/uploads">Upload diagnostics</a> · inspect failed host attempts, slow-host race losses and final upload errors.</p>
 
 <div class="panel">
   <div class="controls">
