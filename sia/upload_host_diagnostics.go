@@ -157,9 +157,10 @@ func (d *SDKUploadDiagnostics) recordSDKMessage(at time.Time, message string) {
 	}
 
 	if match := shardUploadSuccessRE.FindStringSubmatch(message); match != nil {
-		slab, okSlab := parseDiagnosticInt(match[1])
-		shard, okShard := parseDiagnosticInt(match[2])
-		if !okSlab || !okShard {
+		if _, ok := parseDiagnosticInt(match[1]); !ok {
+			return
+		}
+		if _, ok := parseDiagnosticInt(match[2]); !ok {
 			return
 		}
 		elapsed := parseDiagnosticDuration(match[4])
@@ -172,10 +173,6 @@ func (d *SDKUploadDiagnostics) recordSDKMessage(at time.Time, message string) {
 			h.maxSuccess = elapsed
 		}
 		h.lastSeen = at
-		d.appendEventLocked(s3.UploadDiagnosticEvent{
-			At: at, Kind: "success", Host: match[3], SlabIndex: slab, ShardIndex: shard,
-			ElapsedMS: elapsed.Milliseconds(),
-		})
 		d.mu.Unlock()
 		return
 	}
