@@ -291,6 +291,9 @@ components:
         state:
           type: string
           enum: [idle, running, completed, failed, canceled]
+        phase:
+          type: string
+          description: Current repack phase, such as rewriting, finalizing, pinning, committing, or cleanup.
         options:
           $ref: "#/components/schemas/RepackOptions"
         startedAt:
@@ -303,6 +306,17 @@ components:
           type: integer
         objectsCompleted:
           type: integer
+        currentObject:
+          type: string
+          description: Representative bucket/key for the Sia object currently being processed.
+        currentObjectID:
+          type: string
+          description: Sia object ID currently being processed.
+        currentObjectIndex:
+          type: integer
+        currentObjectSize:
+          type: integer
+          format: int64
         rewriteBytes:
           type: integer
           format: int64
