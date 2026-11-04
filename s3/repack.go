@@ -169,10 +169,15 @@ p { color:#9da7b3; line-height:1.5; }
 .panel { background:#161b22; border:1px solid #30363d; border-radius:10px; padding:18px; margin-top:16px; }
 .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
 .card { background:#0d1117; border:1px solid #30363d; border-radius:8px; padding:13px; }
+.cardLink { display:block; color:inherit; text-decoration:none; transition:border-color .15s, background .15s; }
+.cardLink:hover,.cardLink:focus { border-color:#58a6ff; background:#111820; outline:none; }
+.cardHint { color:#58a6ff; font-size:12px; margin-top:7px; }
 .label { color:#8b949e; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
 .value { font-size:22px; font-weight:650; margin-top:5px; }
-.controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; align-items:end; }
+.controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; align-items:start; }
 label { display:block; color:#c9d1d9; font-size:13px; }
+.controlTitle { display:block; font-weight:600; }
+.help { display:block; margin-top:8px; color:#8b949e; font-size:12px; line-height:1.45; }
 input { margin-top:7px; width:100%; box-sizing:border-box; padding:9px 10px; border-radius:6px; border:1px solid #30363d; background:#0d1117; color:#e6edf3; }
 button { padding:9px 15px; border-radius:6px; border:1px solid #3b82f6; background:#1f6feb; color:white; cursor:pointer; font-weight:600; }
 button.secondary { background:#21262d; border-color:#30363d; }
@@ -182,6 +187,13 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 .progress { height:10px; background:#21262d; border-radius:999px; overflow:hidden; margin-top:12px; }
 .progress > div { height:100%; background:#2f81f7; width:0%; transition:width .2s; }
 .note { font-size:13px; color:#8b949e; }
+.uploadRow { margin:10px 0; padding:10px 0; border-bottom:1px solid #21262d; }
+.uploadRow:last-child { border-bottom:0; }
+.uploadLine { margin-top:5px; line-height:1.45; }
+.miniProgress { height:7px; background:#21262d; border-radius:999px; overflow:hidden; margin-top:5px; }
+.miniProgress > div { height:100%; background:#2f81f7; transition:width .2s; }
+.retry { color:#d29922; }
+.retryDetails { margin-top:7px; word-break:break-word; }
 .error { color:#ff7b72; white-space:pre-wrap; }
 .ok { color:#3fb950; }
 </style>
@@ -190,17 +202,24 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 <main>
 <h1>Slab Repacker</h1>
 <p>Measure packed-slab waste and rewrite only the live objects needed to release sparse slabs. Old object references remain intact until every replacement has been uploaded and pinned.</p>
+<p class="note"><a href="/diagnostics/uploads">Upload diagnostics</a> · inspect failed host attempts, slow-host race losses and final upload errors.</p>
 
 <div class="panel">
   <div class="controls">
-    <label>Slab fill threshold (%)
+    <label>
+      <span class="controlTitle">Slab fill threshold (%)</span>
       <input id="fill" type="number" min="0.1" max="99" step="0.1" value="10">
+      <span class="help">Only slabs with less than this percentage of live data are candidates. Lower values target emptier slabs and usually reclaim more space per byte re-uploaded. Example: at 10%, a 96 MiB slab must contain less than 9.6 MiB of live data.</span>
     </label>
-    <label>Max object size (MiB)
+    <label>
+      <span class="controlTitle">Max object size (MiB)</span>
       <input id="maxObject" type="number" min="1" step="1" value="10">
+      <span class="help">Safety limit for objects that would need to be rewritten. If a candidate slab references any live object larger than this value, that entire slab is skipped. Raise it to consider more slabs, but large objects can cause much more download and re-upload traffic.</span>
     </label>
-    <label>Re-upload budget (GiB)
+    <label>
+      <span class="controlTitle">Re-upload budget (GiB)</span>
       <input id="budget" type="number" min="0.01" step="0.1" value="1">
+      <span class="help">Maximum total size of complete objects this repack run may rewrite. It is a traffic/work limit, not the amount of waste reclaimed. When adding another slab would exceed the budget, that slab is skipped.</span>
     </label>
   </div>
   <div class="actions">
@@ -208,7 +227,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
     <button id="start">Start repack</button>
     <button id="cancel" class="danger" disabled>Cancel</button>
   </div>
-  <p class="note">The budget counts complete Sia objects, not only the live bytes inside the sparse slab. Repacking causes Sia download/upload traffic and does not refund storage already paid on old contracts. Snapshot protection and the normal orphan/prune cleanup remain active.</p>
+  <p class="note"><b>How to use these:</b> start with the defaults and click Preview. A lower fill threshold is more selective, a higher max object size allows more candidates, and a higher re-upload budget lets one run process more data. Preview does not modify anything. Repacking causes Sia download/upload traffic and does not refund storage already paid on old contracts. Snapshot protection and normal orphan/prune cleanup remain active.</p>
 </div>
 
 <h2>Current waste</h2>
@@ -236,6 +255,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 <script>
 const $ = id => document.getElementById(id);
 const MiB = 1024*1024, GiB = 1024*1024*1024;
+let latestRepackUpload = null;
 function bytes(n) {
   if (!Number.isFinite(n)) return "-";
   const u=["B","KiB","MiB","GiB","TiB"]; let i=0, v=n;
@@ -253,6 +273,19 @@ function esc(v) {
   return String(v).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 function card(label,value) { return '<div class="card"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div></div>'; }
+function cardLink(label,value,href,hint) {
+  return '<a class="card cardLink" href="'+esc(href)+'"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div>'+
+    (hint ? '<div class="cardHint">'+esc(hint)+'</div>' : '')+'</a>';
+}
+function duration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "-";
+  const total=Math.floor(ms/1000), s=total%60, m=Math.floor(total/60)%60, h=Math.floor(total/3600);
+  return (h ? h+":" : "")+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+}
+function shortHost(v) {
+  v=String(v || "");
+  return v.length>20 ? v.slice(0,10)+"…"+v.slice(-8) : v;
+}
 async function json(url, init) {
   const r=await fetch(url, init);
   const t=await r.text();
@@ -314,11 +347,17 @@ async function status() {
     const running=s.state==="running";
     $("start").disabled=running;
     $("cancel").disabled=!running;
-    const pct=s.rewriteBytes>0 ? Math.min(100,100*s.rewrittenBytes/s.rewriteBytes) : 0;
+    let pct=s.rewriteBytes>0 ? Math.min(100,100*s.rewrittenBytes/s.rewriteBytes) : 0;
+    if (s.phase==="finalizing" && latestRepackUpload && latestRepackUpload.expectedPhysical>0) {
+      pct=Math.min(100,100*(latestRepackUpload.physicalSent || 0)/latestRepackUpload.expectedPhysical);
+    }
     $("bar").style.width=pct+"%";
+    const siaProgress=(s.phase==="finalizing" && latestRepackUpload && latestRepackUpload.expectedPhysical)
+      ? ' · Sia '+bytes(latestRepackUpload.physicalSent || 0)+' / '+bytes(latestRepackUpload.expectedPhysical)+' minimum'
+      : '';
     $("jobText").innerHTML =
       '<b>'+s.state+'</b> · '+phaseLabel(s.phase)+' · '+s.objectsCompleted+'/'+s.objectsTotal+' objects · '+
-      bytes(s.rewrittenBytes)+' / '+bytes(s.rewriteBytes)+
+      'source '+bytes(s.rewrittenBytes)+' / '+bytes(s.rewriteBytes)+siaProgress+
       (s.estimatedLogicalReclaim ? ' · est. reclaim '+bytes(s.estimatedLogicalReclaim)+' logical' : '');
     $("jobDetail").textContent = s.currentObject
       ? 'Current object '+(s.currentObjectIndex || 0)+'/'+s.objectsTotal+' · '+s.currentObject+
@@ -338,15 +377,48 @@ async function transferStats() {
       card("Pending", (s.pendingObjects || 0).toLocaleString()+" · "+bytes(s.pendingSize || 0))+
       card("Uploaded", (s.uploadedObjects || 0).toLocaleString()+" · "+bytes(s.uploadedSize || 0))+
       card("Orphaned", (s.orphanedObjects || 0).toLocaleString())+
-      card("Failed uploads", (s.failedUploads || 0).toLocaleString())+
+      cardLink("Failed uploads", (s.failedUploads || 0).toLocaleString(), "/diagnostics/uploads", "Open diagnostics →")+
       card("Sia sent this run", bytes(t.uploadBytes || 0));
     const active=t.activeUploads || [];
+    latestRepackUpload=active.find(u => u.label==="slab repack") || null;
     $("activeUploads").innerHTML = active.length ? active.map(u => {
-      const p=u.size>0 ? Math.min(100,100*u.sent/u.size) : 0;
+      const sourcePct=u.size>0 ? Math.min(100,100*(u.sent || 0)/u.size) : 0;
+      const physicalPct=u.expectedPhysical>0 ? Math.min(100,100*(u.physicalSent || 0)/u.expectedPhysical) : 0;
       const state=u.finalizing ? "finalizing" : "uploading";
-      return '<div style="margin:8px 0"><b>'+esc(u.label)+'</b> · '+esc(state)+
-        ' · '+esc(u.objects)+' objects · '+esc(bytes(u.sent))+' / '+esc(bytes(u.size))+
-        ' ('+esc(p.toFixed(1))+'%)</div>';
+      const observedRetry=u.observedRetryShards || 0;
+      const extraPhysical=Math.max(0,(u.physicalSent || 0)-(u.expectedPhysical || 0));
+      const shardSize=(u.expectedShards>0 && u.expectedPhysical>0) ? u.expectedPhysical/u.expectedShards : 0;
+      const inferredRetry=shardSize>0 ? Math.floor(extraPhysical/shardSize) : 0;
+      const retry=Math.max(observedRetry,inferredRetry);
+      const retryPhysical=Math.max(u.retryBytes || 0,extraPhysical);
+      let retryLine="";
+      if (retry>0 || retryPhysical>0) {
+        retryLine='<div class="uploadLine retry"><b>Retry activity:</b> '+
+          esc(retry)+' successful shard re-upload'+(retry===1?'':'s')+
+          ' · '+esc(bytes(retryPhysical))+
+          ' · '+esc(u.retriedSlabs || 0)+' slab'+((u.retriedSlabs || 0)===1?'':'s')+
+          (u.maxSlabAttempt>1 ? ' · max attempt '+esc(u.maxSlabAttempt) : '')+
+          '</div>';
+      }
+      const retryDetails=(u.retryDetails || []).length ? '<details class="retryDetails"><summary>Retry details ('+
+        esc((u.retryDetails || []).length)+' shard'+((u.retryDetails || []).length===1?'':'s')+')</summary>'+
+        (u.retryDetails || []).map(r => '<div>Slab '+esc(r.slabIndex)+' · shard '+esc(r.shardIndex)+
+          ' · '+esc(r.successfulUploads)+' successful writes'+
+          (r.lastHost ? ' · host '+esc(shortHost(r.lastHost)) : '')+
+          (r.lastElapsedMs ? ' · '+esc(duration(r.lastElapsedMs)) : '')+
+          '</div>').join("")+'</details>' : '';
+      return '<div class="uploadRow"><b>'+esc(u.label)+'</b> · '+esc(state)+' · '+esc(u.objects)+' objects'+
+        '<div class="uploadLine">Source: '+esc(bytes(u.sent || 0))+' / '+esc(bytes(u.size || 0))+
+        ' ('+esc(sourcePct.toFixed(1))+'%)</div>'+
+        '<div class="miniProgress"><div style="width:'+esc(sourcePct.toFixed(2))+'%"></div></div>'+
+        '<div class="uploadLine">Sia successful data: '+esc(bytes(u.physicalSent || 0))+
+        (u.expectedPhysical ? ' / '+esc(bytes(u.expectedPhysical))+' minimum ('+esc(physicalPct.toFixed(1))+'%)' : '')+
+        '</div>'+
+        '<div class="miniProgress"><div style="width:'+esc(physicalPct.toFixed(2))+'%"></div></div>'+
+        '<div class="uploadLine">Shard writes: '+esc(u.shardUploads || 0)+
+        (u.expectedShards ? ' · observed unique '+esc(u.observedUniqueShards || 0)+' / '+esc(u.expectedShards) : '')+
+        (u.finalizing ? ' · finalizing '+esc(duration(u.finalizingForMs || 0)) : '')+
+        '</div>'+retryLine+retryDetails+'</div>';
     }).join("") : "None";
   } catch(e) {
     $("activeUploads").textContent="Transfer stats unavailable: "+e.message;

@@ -416,19 +416,27 @@ func (s *Sia) cleanupRepackPins(ids []types.Hash256) {
 }
 
 func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
-	upload, err := s.sdk.UploadPacked(ctx, sdk.WithUploadProgress(s.shardProgress))
-	if err != nil {
-		return fmt.Errorf("failed to create repack upload: %w", err)
-	}
-	defer upload.Close()
-
 	active := s.transfer.beginNamedUpload("slab repack", int64(len(plan.objects)), plan.preview.RewriteBytes)
+	s.configureActiveUpload(active, plan.preview.RewriteBytes)
 	activeEnded := false
 	defer func() {
 		if !activeEnded {
 			s.transfer.endUpload(active)
 		}
 	}()
+
+	progress := func(p sdk.ShardProgress) {
+		s.shardProgress(p)
+		active.recordShardProgress(p)
+	}
+	upload, err := s.sdk.UploadPacked(ctx, sdk.WithUploadProgress(progress))
+	if err != nil {
+		if s.uploadDiagnostics != nil {
+			s.uploadDiagnostics.RecordUploadFailure("slab repack", "start", err)
+		}
+		return fmt.Errorf("failed to create repack upload: %w", err)
+	}
+	defer upload.Close()
 
 	oldObjects := make([]objects.SiaObject, 0, len(plan.objects))
 	for i, ref := range plan.objects {
@@ -468,6 +476,9 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 	active.finalize()
 	results, err := upload.Finalize()
 	if err != nil {
+		if s.uploadDiagnostics != nil {
+			s.uploadDiagnostics.RecordUploadFailure("slab repack", "finalize", err)
+		}
 		return fmt.Errorf("failed to finalize repack upload: %w", err)
 	} else if len(results) != len(oldObjects) {
 		return fmt.Errorf("repack finalize returned %d objects for %d sources", len(results), len(oldObjects))

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/SiaFoundation/s3d/sia/objects"
+	"go.sia.tech/core/types"
+	sdk "go.sia.tech/siastorage"
 )
 
 func TestTransferCounterRate(t *testing.T) {
@@ -113,5 +115,74 @@ func TestActiveUploadProgress(t *testing.T) {
 	stats.endUpload(batched)
 	if snap := stats.snapshot(); snap.ActiveUploads != nil {
 		t.Fatalf("expected no active uploads, got %d", len(snap.ActiveUploads))
+	}
+}
+
+func TestActiveUploadShardProgressAndRetries(t *testing.T) {
+	var stats transferStats
+	active := stats.beginNamedUpload("slab repack", 25, 96<<20)
+	active.configureExpected(96<<20, 96<<20, 48)
+
+	hostA := types.GeneratePrivateKey().PublicKey()
+	hostB := types.GeneratePrivateKey().PublicKey()
+	const shardSize = uint64(4 << 20)
+
+	active.recordShardProgress(sdk.ShardProgress{
+		HostKey: hostA, SlabIndex: 0, ShardIndex: 0,
+		ShardSize: shardSize, Transferred: shardSize,
+		Elapsed: 1200 * time.Millisecond,
+	})
+	active.recordShardProgress(sdk.ShardProgress{
+		HostKey: hostB, SlabIndex: 0, ShardIndex: 1,
+		ShardSize: shardSize, Transferred: 2 * shardSize,
+		Elapsed: 900 * time.Millisecond,
+	})
+	// A second successful callback for the same slab/shard pair means the
+	// shard was successfully re-uploaded, e.g. during a full slab retry.
+	active.recordShardProgress(sdk.ShardProgress{
+		HostKey: hostB, SlabIndex: 0, ShardIndex: 0,
+		ShardSize: shardSize, Transferred: 3 * shardSize,
+		Elapsed: 700 * time.Millisecond,
+	})
+	active.finalize()
+
+	snap := stats.snapshot()
+	if len(snap.ActiveUploads) != 1 {
+		t.Fatalf("expected one active upload, got %d", len(snap.ActiveUploads))
+	}
+	got := snap.ActiveUploads[0]
+	if got.ExpectedShards != 48 {
+		t.Fatalf("expected 48 shards, got %d", got.ExpectedShards)
+	}
+	if got.ExpectedPhysical != 192<<20 {
+		t.Fatalf("expected 192 MiB physical minimum, got %d", got.ExpectedPhysical)
+	}
+	if got.PhysicalSent != 12<<20 {
+		t.Fatalf("expected 12 MiB physically sent, got %d", got.PhysicalSent)
+	}
+	if got.ShardUploads != 3 {
+		t.Fatalf("expected 3 successful shard writes, got %d", got.ShardUploads)
+	}
+	if got.ObservedUnique != 2 {
+		t.Fatalf("expected 2 observed unique shards, got %d", got.ObservedUnique)
+	}
+	if got.ObservedRetries != 1 || got.RetryBytes != 4<<20 {
+		t.Fatalf("expected one 4 MiB retry, got %d retries and %d bytes", got.ObservedRetries, got.RetryBytes)
+	}
+	if got.RetriedSlabs != 1 || got.MaxSlabAttempt != 2 {
+		t.Fatalf("expected one retried slab at attempt 2, got %d slabs and attempt %d", got.RetriedSlabs, got.MaxSlabAttempt)
+	}
+	if len(got.RetryDetails) != 1 {
+		t.Fatalf("expected one retry detail, got %d", len(got.RetryDetails))
+	}
+	detail := got.RetryDetails[0]
+	if detail.SlabIndex != 0 || detail.ShardIndex != 0 || detail.SuccessfulUploads != 2 {
+		t.Fatalf("unexpected retry detail: %+v", detail)
+	}
+	if detail.LastHost != hostB.String() || detail.LastElapsedMS != 700 {
+		t.Fatalf("unexpected retry endpoint detail: %+v", detail)
+	}
+	if !got.Finalizing {
+		t.Fatal("expected upload to be finalizing")
 	}
 }

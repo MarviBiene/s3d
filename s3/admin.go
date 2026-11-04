@@ -30,6 +30,17 @@ type SnapshotList struct {
 	Snapshots []Snapshot `json:"snapshots"`
 }
 
+// ShardRetry describes a successfully re-uploaded shard observed while an
+// upload was being finalized. The SDK reports successful shard placements; it
+// does not expose failed host attempts or losing race attempts.
+type ShardRetry struct {
+	SlabIndex         int    `json:"slabIndex"`
+	ShardIndex        int    `json:"shardIndex"`
+	SuccessfulUploads int    `json:"successfulUploads"`
+	LastHost          string `json:"lastHost,omitempty"`
+	LastElapsedMS     int64  `json:"lastElapsedMs"`
+}
+
 // ActiveUpload describes an upload group being streamed from the local buffer
 // to Sia.
 type ActiveUpload struct {
@@ -38,6 +49,18 @@ type ActiveUpload struct {
 	Size       int64  `json:"size"`
 	Sent       int64  `json:"sent"`
 	Finalizing bool   `json:"finalizing"`
+
+	PhysicalSent     int64        `json:"physicalSent"`
+	ExpectedPhysical int64        `json:"expectedPhysical"`
+	ShardUploads     int64        `json:"shardUploads"`
+	ExpectedShards   int64        `json:"expectedShards"`
+	ObservedUnique   int64        `json:"observedUniqueShards"`
+	ObservedRetries  int64        `json:"observedRetryShards"`
+	RetryBytes       int64        `json:"retryBytes"`
+	RetriedSlabs     int64        `json:"retriedSlabs"`
+	MaxSlabAttempt   int          `json:"maxSlabAttempt"`
+	FinalizingForMS  int64        `json:"finalizingForMs"`
+	RetryDetails     []ShardRetry `json:"retryDetails,omitempty"`
 }
 
 // TransferStats contains live transfer activity. Byte totals cover the current

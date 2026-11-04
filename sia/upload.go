@@ -320,20 +320,25 @@ func (s *Sia) UploadStats(_ context.Context) (s3.UploadStats, error) {
 }
 
 func (s *Sia) uploadObjectGroup(ctx context.Context, group uploadGroup) error {
+	active := s.transfer.beginUpload(group)
+	s.configureActiveUpload(active, group.totalSize)
+	defer s.transfer.endUpload(active)
+
 	diagnostics := newUploadProgressDiagnostics()
 	progress := func(p sdk.ShardProgress) {
 		s.shardProgress(p)
+		active.recordShardProgress(p)
 		diagnostics.record(p)
 	}
 	upload, err := s.sdk.UploadPacked(ctx, sdk.WithUploadProgress(progress))
 	if err != nil {
 		s.logger.Error("failed to create packed upload", zap.Error(err))
+		if s.uploadDiagnostics != nil {
+			s.uploadDiagnostics.RecordUploadFailure(uploadLabel(group), "start", err)
+		}
 		return fmt.Errorf("failed to create packed upload: %w", err)
 	}
 	defer upload.Close()
-
-	active := s.transfer.beginUpload(group)
-	defer s.transfer.endUpload(active)
 
 	var objIdx []int
 	var errs []error
@@ -341,6 +346,9 @@ func (s *Sia) uploadObjectGroup(ctx context.Context, group uploadGroup) error {
 		rc, err := s.openUpload(obj.BucketID, obj.Name, obj.VersionID, &obj.Filename, obj.Multipart, nil)
 		if err != nil {
 			s.failedUploads.Add(1)
+			if s.uploadDiagnostics != nil {
+				s.uploadDiagnostics.RecordUploadFailure(obj.Bucket+"/"+obj.Name, "source-open", err)
+			}
 			s.logger.Error("failed to open upload",
 				zap.String("bucket", obj.Bucket),
 				zap.String("name", obj.Name),
@@ -352,6 +360,9 @@ func (s *Sia) uploadObjectGroup(ctx context.Context, group uploadGroup) error {
 		n, err := upload.Add(s.transfer.trackUpload(rc, active))
 		if err != nil {
 			s.failedUploads.Add(1)
+			if s.uploadDiagnostics != nil {
+				s.uploadDiagnostics.RecordUploadFailure(obj.Bucket+"/"+obj.Name, "stream", err)
+			}
 			s.logger.Error("failed to add object to upload",
 				zap.String("bucket", obj.Bucket),
 				zap.String("name", obj.Name),
@@ -382,6 +393,9 @@ func (s *Sia) uploadObjectGroup(ctx context.Context, group uploadGroup) error {
 		s.failedUploads.Add(int64(len(objIdx)))
 		totalShards := int(s.uploadDataShards) + int(s.uploadParityShards)
 		diagnostics.logFailure(s.logger, group.slabs(), totalShards, err)
+		if s.uploadDiagnostics != nil {
+			s.uploadDiagnostics.RecordUploadFailure(uploadLabel(group), "finalize", err)
+		}
 		return err
 	} else if len(results) != len(objIdx) {
 		if n := int64(len(objIdx)) - int64(len(results)); n > 0 {
@@ -390,7 +404,11 @@ func (s *Sia) uploadObjectGroup(ctx context.Context, group uploadGroup) error {
 		s.logger.Error("finalize returned unexpected number of results",
 			zap.Int("expected", len(objIdx)),
 			zap.Int("got", len(results)))
-		return fmt.Errorf("unexpected number of results: expected %d, got %d", len(objIdx), len(results))
+		err := fmt.Errorf("unexpected number of results: expected %d, got %d", len(objIdx), len(results))
+		if s.uploadDiagnostics != nil {
+			s.uploadDiagnostics.RecordUploadFailure(uploadLabel(group), "finalize", err)
+		}
+		return err
 	}
 
 	// record uploads in the store; the pin loop is responsible for pinning

@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/SiaFoundation/s3d/s3"
+	proto "go.sia.tech/core/rhp/v4"
 	sdk "go.sia.tech/siastorage"
 )
 
@@ -40,6 +42,17 @@ type (
 		samples [numSamples]rateSample
 	}
 
+	shardProgressKey struct {
+		slab  int
+		shard int
+	}
+
+	shardRetryProgress struct {
+		uploads       int
+		lastHost      string
+		lastElapsedMS int64
+	}
+
 	// activeUpload tracks an upload group being streamed from the local buffer
 	// to Sia.
 	activeUpload struct {
@@ -49,6 +62,20 @@ type (
 
 		sent       atomic.Int64
 		finalizing atomic.Bool
+
+		progressMu       sync.Mutex
+		expectedShards   int64
+		expectedPhysical int64
+		physicalSent     int64
+		shardSize        int64
+		shardUploads     int64
+		shards           map[shardProgressKey]int
+		retries          map[shardProgressKey]shardRetryProgress
+		retriedSlabs     map[int]struct{}
+		retryUploads     int64
+		retryBytes       int64
+		maxSlabAttempt   int
+		finalizeStarted  time.Time
 	}
 
 	// transferStats tracks the request bodies streaming in from S3 clients, the
@@ -132,9 +159,12 @@ func (c *transferCounter) snapshot() (total, rate int64) {
 
 func (t *transferStats) beginNamedUpload(label string, objects int64, size int64) *activeUpload {
 	u := &activeUpload{
-		label:   label,
-		objects: objects,
-		size:    size,
+		label:        label,
+		objects:      objects,
+		size:         size,
+		shards:       make(map[shardProgressKey]int),
+		retries:      make(map[shardProgressKey]shardRetryProgress),
+		retriedSlabs: make(map[int]struct{}),
 	}
 
 	t.mu.Lock()
@@ -153,9 +183,68 @@ func (t *transferStats) endUpload(u *activeUpload) {
 	t.active = slices.DeleteFunc(t.active, func(a *activeUpload) bool { return a == u })
 }
 
+// configureExpected records the minimum shard and physical byte counts expected
+// for the upload. Retries may cause the actual physical total to exceed this.
+func (u *activeUpload) configureExpected(logicalSize, optimalSize int64, totalShards int64) {
+	if logicalSize <= 0 || optimalSize <= 0 || totalShards <= 0 {
+		return
+	}
+	slabs := (logicalSize + optimalSize - 1) / optimalSize
+
+	u.progressMu.Lock()
+	u.expectedShards = slabs * totalShards
+	u.expectedPhysical = u.expectedShards * int64(proto.SectorSize)
+	u.progressMu.Unlock()
+}
+
+// recordShardProgress records successful shard placements for this upload.
+// Repeated callbacks for the same slab/shard pair indicate a successful
+// re-upload, e.g. after a slab pin retry. Internal failed/racing attempts are
+// not exposed by the SDK callback and therefore cannot be counted here.
+func (u *activeUpload) recordShardProgress(p sdk.ShardProgress) {
+	u.progressMu.Lock()
+	defer u.progressMu.Unlock()
+
+	if int64(p.Transferred) > u.physicalSent {
+		u.physicalSent = int64(p.Transferred)
+	} else if p.Transferred == 0 {
+		u.physicalSent += int64(p.ShardSize)
+	}
+	if p.ShardSize > 0 {
+		u.shardSize = int64(p.ShardSize)
+		if p.Transferred > 0 {
+			u.shardUploads = int64(p.Transferred / p.ShardSize)
+		} else {
+			u.shardUploads++
+		}
+	}
+
+	key := shardProgressKey{slab: p.SlabIndex, shard: p.ShardIndex}
+	u.shards[key]++
+	attempt := u.shards[key]
+	if attempt > u.maxSlabAttempt {
+		u.maxSlabAttempt = attempt
+	}
+	if attempt > 1 {
+		u.retriedSlabs[p.SlabIndex] = struct{}{}
+		u.retryUploads++
+		u.retryBytes += int64(p.ShardSize)
+		u.retries[key] = shardRetryProgress{
+			uploads:       attempt,
+			lastHost:      p.HostKey.String(),
+			lastElapsedMS: p.Elapsed.Milliseconds(),
+		}
+	}
+}
+
 // finalize records that every object in the group has been handed to the Sia
 // uploader and the group is now being finalized.
 func (u *activeUpload) finalize() {
+	u.progressMu.Lock()
+	if u.finalizeStarted.IsZero() {
+		u.finalizeStarted = time.Now()
+	}
+	u.progressMu.Unlock()
 	u.finalizing.Store(true)
 }
 
@@ -180,15 +269,52 @@ func (t *transferStats) snapshot() s3.TransferStats {
 	defer t.mu.Unlock()
 	stats.IngressActive = t.ingressActive
 	for _, u := range t.active {
-		stats.ActiveUploads = append(stats.ActiveUploads, s3.ActiveUpload{
+		active := s3.ActiveUpload{
 			Label:      u.label,
 			Objects:    u.objects,
 			Size:       u.size,
 			Sent:       u.sent.Load(),
 			Finalizing: u.finalizing.Load(),
+		}
+
+		u.progressMu.Lock()
+		active.PhysicalSent = u.physicalSent
+		active.ExpectedPhysical = u.expectedPhysical
+		active.ShardUploads = u.shardUploads
+		active.ExpectedShards = u.expectedShards
+		active.ObservedUnique = int64(len(u.shards))
+		active.ObservedRetries = u.retryUploads
+		active.RetryBytes = u.retryBytes
+		active.RetriedSlabs = int64(len(u.retriedSlabs))
+		active.MaxSlabAttempt = u.maxSlabAttempt
+		if !u.finalizeStarted.IsZero() {
+			active.FinalizingForMS = time.Since(u.finalizeStarted).Milliseconds()
+		}
+		for key, retry := range u.retries {
+			active.RetryDetails = append(active.RetryDetails, s3.ShardRetry{
+				SlabIndex:         key.slab,
+				ShardIndex:        key.shard,
+				SuccessfulUploads: retry.uploads,
+				LastHost:          retry.lastHost,
+				LastElapsedMS:     retry.lastElapsedMS,
+			})
+		}
+		u.progressMu.Unlock()
+
+		sort.Slice(active.RetryDetails, func(i, j int) bool {
+			if active.RetryDetails[i].SlabIndex == active.RetryDetails[j].SlabIndex {
+				return active.RetryDetails[i].ShardIndex < active.RetryDetails[j].ShardIndex
+			}
+			return active.RetryDetails[i].SlabIndex < active.RetryDetails[j].SlabIndex
 		})
+		stats.ActiveUploads = append(stats.ActiveUploads, active)
 	}
 	return stats
+}
+
+func (s *Sia) configureActiveUpload(u *activeUpload, logicalSize int64) {
+	totalShards := int64(s.uploadDataShards) + int64(s.uploadParityShards)
+	u.configureExpected(logicalSize, s.uploadOptimalSize, totalShards)
 }
 
 func uploadLabel(group uploadGroup) string {

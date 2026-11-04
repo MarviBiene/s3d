@@ -413,11 +413,12 @@ type Backend interface {
 }
 
 type s3 struct {
-	backend         Backend
-	hostBucketBases []string
-	logger          *zap.Logger
-	region          string
-	trustedProxies  []netip.Prefix
+	backend           Backend
+	hostBucketBases   []string
+	logger            *zap.Logger
+	region            string
+	trustedProxies    []netip.Prefix
+	uploadDiagnostics UploadDiagnosticsProvider
 }
 
 // Option is a configuration option for the S3 API handler.
@@ -539,9 +540,12 @@ func NewAdmin(b Backend, opts ...Option) http.Handler {
 	}
 
 	return jape.Mux(map[string]jape.Handler{
-		"GET /prometheus":             s3.handlePrometheus,
-		"GET /stats/uploads":          s3.handleGetUploadStats,
-		"GET /repack":                 s3.handleRepackPage,
+		"GET /prometheus":                    s3.handlePrometheus,
+		"GET /stats/uploads":                 s3.handleGetUploadStats,
+		"GET /diagnostics/uploads":           s3.handleUploadDiagnosticsPage,
+		"GET /diagnostics/uploads/data":      s3.handleUploadDiagnosticsData,
+		"POST /diagnostics/uploads/reset":    s3.handleResetUploadDiagnostics,
+		"GET /repack":                        s3.handleRepackPage,
 		"GET /repack/preview":         s3.handleRepackPreview,
 		"GET /repack/status":          s3.handleRepackStatus,
 		"POST /repack/start":          s3.handleStartRepack,

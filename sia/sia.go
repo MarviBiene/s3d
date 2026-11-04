@@ -161,6 +161,13 @@ func WithUploadShardCounts(dataShards, parityShards uint8) Option {
 	}
 }
 
+// WithUploadDiagnostics attaches the process-local upload diagnostics recorder.
+func WithUploadDiagnostics(diagnostics *SDKUploadDiagnostics) Option {
+	return func(s *Sia) {
+		s.uploadDiagnostics = diagnostics
+	}
+}
+
 // Sia implements the s3.Backend interface for storing data on Sia.
 type Sia struct {
 	sdk   SDK
@@ -184,6 +191,7 @@ type Sia struct {
 	uploadDeadline     time.Duration
 	uploadDataShards   uint8
 	uploadParityShards uint8
+	uploadDiagnostics  *SDKUploadDiagnostics
 
 	lifecycleLoopInterval time.Duration
 	lifecycleDayDuration  time.Duration
