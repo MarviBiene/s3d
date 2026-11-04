@@ -182,6 +182,13 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 .progress { height:10px; background:#21262d; border-radius:999px; overflow:hidden; margin-top:12px; }
 .progress > div { height:100%; background:#2f81f7; width:0%; transition:width .2s; }
 .note { font-size:13px; color:#8b949e; }
+.uploadRow { margin:10px 0; padding:10px 0; border-bottom:1px solid #21262d; }
+.uploadRow:last-child { border-bottom:0; }
+.uploadLine { margin-top:5px; line-height:1.45; }
+.miniProgress { height:7px; background:#21262d; border-radius:999px; overflow:hidden; margin-top:5px; }
+.miniProgress > div { height:100%; background:#2f81f7; transition:width .2s; }
+.retry { color:#d29922; }
+.retryDetails { margin-top:7px; word-break:break-word; }
 .error { color:#ff7b72; white-space:pre-wrap; }
 .ok { color:#3fb950; }
 </style>
@@ -236,6 +243,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 <script>
 const $ = id => document.getElementById(id);
 const MiB = 1024*1024, GiB = 1024*1024*1024;
+let latestRepackUpload = null;
 function bytes(n) {
   if (!Number.isFinite(n)) return "-";
   const u=["B","KiB","MiB","GiB","TiB"]; let i=0, v=n;
@@ -253,6 +261,15 @@ function esc(v) {
   return String(v).replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 }
 function card(label,value) { return '<div class="card"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div></div>'; }
+function duration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return "-";
+  const total=Math.floor(ms/1000), s=total%60, m=Math.floor(total/60)%60, h=Math.floor(total/3600);
+  return (h ? h+":" : "")+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+}
+function shortHost(v) {
+  v=String(v || "");
+  return v.length>20 ? v.slice(0,10)+"…"+v.slice(-8) : v;
+}
 async function json(url, init) {
   const r=await fetch(url, init);
   const t=await r.text();
@@ -314,7 +331,10 @@ async function status() {
     const running=s.state==="running";
     $("start").disabled=running;
     $("cancel").disabled=!running;
-    const pct=s.rewriteBytes>0 ? Math.min(100,100*s.rewrittenBytes/s.rewriteBytes) : 0;
+    let pct=s.rewriteBytes>0 ? Math.min(100,100*s.rewrittenBytes/s.rewriteBytes) : 0;
+    if (s.phase==="finalizing" && latestRepackUpload && latestRepackUpload.expectedPhysical>0) {
+      pct=Math.min(100,100*(latestRepackUpload.physicalSent || 0)/latestRepackUpload.expectedPhysical);
+    }
     $("bar").style.width=pct+"%";
     $("jobText").innerHTML =
       '<b>'+s.state+'</b> · '+phaseLabel(s.phase)+' · '+s.objectsCompleted+'/'+s.objectsTotal+' objects · '+
@@ -341,12 +361,41 @@ async function transferStats() {
       card("Failed uploads", (s.failedUploads || 0).toLocaleString())+
       card("Sia sent this run", bytes(t.uploadBytes || 0));
     const active=t.activeUploads || [];
+    latestRepackUpload=active.find(u => u.label==="slab repack") || null;
     $("activeUploads").innerHTML = active.length ? active.map(u => {
-      const p=u.size>0 ? Math.min(100,100*u.sent/u.size) : 0;
+      const sourcePct=u.size>0 ? Math.min(100,100*(u.sent || 0)/u.size) : 0;
+      const physicalPct=u.expectedPhysical>0 ? Math.min(100,100*(u.physicalSent || 0)/u.expectedPhysical) : 0;
       const state=u.finalizing ? "finalizing" : "uploading";
-      return '<div style="margin:8px 0"><b>'+esc(u.label)+'</b> · '+esc(state)+
-        ' · '+esc(u.objects)+' objects · '+esc(bytes(u.sent))+' / '+esc(bytes(u.size))+
-        ' ('+esc(p.toFixed(1))+'%)</div>';
+      const retry=u.observedRetryShards || 0;
+      const extraPhysical=Math.max(0,(u.physicalSent || 0)-(u.expectedPhysical || 0));
+      let retryLine="";
+      if (retry>0 || extraPhysical>0) {
+        retryLine='<div class="uploadLine retry"><b>Retry activity:</b> '+
+          esc(retry)+' observed shard re-upload'+(retry===1?'':'s')+
+          ' · '+esc(bytes(u.retryBytes || extraPhysical))+
+          ' · '+esc(u.retriedSlabs || 0)+' slab'+((u.retriedSlabs || 0)===1?'':'s')+
+          (u.maxSlabAttempt>1 ? ' · max attempt '+esc(u.maxSlabAttempt) : '')+
+          '</div>';
+      }
+      const retryDetails=(u.retryDetails || []).length ? '<details class="retryDetails"><summary>Retry details ('+
+        esc((u.retryDetails || []).length)+' shard'+((u.retryDetails || []).length===1?'':'s')+')</summary>'+
+        (u.retryDetails || []).map(r => '<div>Slab '+esc(r.slabIndex)+' · shard '+esc(r.shardIndex)+
+          ' · '+esc(r.successfulUploads)+' successful writes'+
+          (r.lastHost ? ' · host '+esc(shortHost(r.lastHost)) : '')+
+          (r.lastElapsedMS ? ' · '+esc(duration(r.lastElapsedMS)) : '')+
+          '</div>').join("")+'</details>' : '';
+      return '<div class="uploadRow"><b>'+esc(u.label)+'</b> · '+esc(state)+' · '+esc(u.objects)+' objects'+
+        '<div class="uploadLine">Source: '+esc(bytes(u.sent || 0))+' / '+esc(bytes(u.size || 0))+
+        ' ('+esc(sourcePct.toFixed(1))+'%)</div>'+
+        '<div class="miniProgress"><div style="width:'+esc(sourcePct.toFixed(2))+'%"></div></div>'+
+        '<div class="uploadLine">Sia successful data: '+esc(bytes(u.physicalSent || 0))+
+        (u.expectedPhysical ? ' / '+esc(bytes(u.expectedPhysical))+' minimum ('+esc(physicalPct.toFixed(1))+'%)' : '')+
+        '</div>'+
+        '<div class="miniProgress"><div style="width:'+esc(physicalPct.toFixed(2))+'%"></div></div>'+
+        '<div class="uploadLine">Shard writes: '+esc(u.shardUploads || 0)+
+        (u.expectedShards ? ' · observed unique '+esc(u.observedUniqueShards || 0)+' / '+esc(u.expectedShards) : '')+
+        (u.finalizing ? ' · finalizing '+esc(duration(u.finalizingForMS || 0)) : '')+
+        '</div>'+retryLine+retryDetails+'</div>';
     }).join("") : "None";
   } catch(e) {
     $("activeUploads").textContent="Transfer stats unavailable: "+e.message;
