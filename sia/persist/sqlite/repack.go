@@ -80,7 +80,19 @@ func (s *Store) RepackSnapshot() (snapshot objects.RepackSnapshot, err error) {
 				SELECT DISTINCT slab_id, sia_object_id
 				FROM sia_slab_slices
 			)
-			SELECT r.slab_id, r.sia_object_id, os.size, rd.ready
+			SELECT
+				r.slab_id,
+				r.sia_object_id,
+				COALESCE((
+					SELECT b.name || '/' || o.name
+					FROM objects o
+					JOIN buckets b ON b.id = o.bucket_id
+					WHERE o.sia_object_id = r.sia_object_id
+					ORDER BY o.is_latest DESC, o.updated_at DESC
+					LIMIT 1
+				), '') AS label,
+				os.size,
+				rd.ready
 			FROM refs r
 			JOIN object_sizes os ON os.sia_object_id = r.sia_object_id
 			JOIN object_ready rd ON rd.id = r.sia_object_id
@@ -93,9 +105,10 @@ func (s *Store) RepackSnapshot() (snapshot objects.RepackSnapshot, err error) {
 
 		for rows.Next() {
 			var slabID, objectID sqlHash256
+			var label string
 			var size int64
 			var ready bool
-			if err := rows.Scan(&slabID, &objectID, &size, &ready); err != nil {
+			if err := rows.Scan(&slabID, &objectID, &label, &size, &ready); err != nil {
 				return fmt.Errorf("failed to scan slab object reference: %w", err)
 			}
 			idx, ok := slabIndex[types.Hash256(slabID)]
@@ -104,6 +117,7 @@ func (s *Store) RepackSnapshot() (snapshot objects.RepackSnapshot, err error) {
 			}
 			snapshot.Slabs[idx].ObjectRefs = append(snapshot.Slabs[idx].ObjectRefs, objects.RepackObjectRef{
 				ID:    types.Hash256(objectID),
+				Label: label,
 				Size:  size,
 				Ready: ready,
 			})
