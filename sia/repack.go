@@ -416,5 +416,5 @@ func (s *Sia) executeRepack(ctx context.Context, plan repackPlan) error {
 	// deletion itself remains subject to the normal one-hour safety cutoff in
 	// processOrphansLoop.
 	s.ProcessOrphans(ctx)
-	return ctx.Err()
+	return nil
 }
