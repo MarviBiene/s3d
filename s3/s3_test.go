@@ -88,6 +88,82 @@ func TestUploadStats(t *testing.T) {
 	}
 }
 
+func TestRepackAdmin(t *testing.T) {
+	baseURL, httpClient := newAdminServer(t)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, baseURL+"/repack", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		t.Fatalf("expected repack page 200, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodGet, baseURL+"/repack/preview", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = httpClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		t.Fatalf("expected preview 200, got %d", resp.StatusCode)
+	}
+	var preview s3.RepackPreview
+	if err := json.UnmarshalRead(resp.Body, &preview); err != nil {
+		resp.Body.Close()
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if preview.Slabs != 0 || preview.LogicalWaste != 0 {
+		t.Fatalf("expected empty repack preview, got %+v", preview)
+	}
+
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodGet, baseURL+"/repack/status", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = httpClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status s3.RepackStatus
+	if err := json.UnmarshalRead(resp.Body, &status); err != nil {
+		resp.Body.Close()
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if status.State != "idle" {
+		t.Fatalf("expected idle repack status, got %q", status.State)
+	}
+
+	body, err := json.Marshal(s3.RepackOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodPost, baseURL+"/repack/start", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = httpClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected no-candidate start to return 400, got %d", resp.StatusCode)
+	}
+}
+
 func TestBackupSQLite3(t *testing.T) {
 	baseURL, httpClient := newAdminServer(t)
 
