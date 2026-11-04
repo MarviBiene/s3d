@@ -38,7 +38,7 @@ type ShardRetry struct {
 	ShardIndex        int    `json:"shardIndex"`
 	SuccessfulUploads int    `json:"successfulUploads"`
 	LastHost          string `json:"lastHost,omitempty"`
-	LastElapsedMS     int64  `json:"lastElapsedMS"`
+	LastElapsedMS     int64  `json:"lastElapsedMs"`
 }
 
 // ActiveUpload describes an upload group being streamed from the local buffer
@@ -50,17 +50,17 @@ type ActiveUpload struct {
 	Sent       int64  `json:"sent"`
 	Finalizing bool   `json:"finalizing"`
 
-	PhysicalSent       int64        `json:"physicalSent"`
-	ExpectedPhysical   int64        `json:"expectedPhysical"`
-	ShardUploads       int64        `json:"shardUploads"`
-	ExpectedShards     int64        `json:"expectedShards"`
-	ObservedUnique     int64        `json:"observedUniqueShards"`
-	ObservedRetries    int64        `json:"observedRetryShards"`
-	RetryBytes         int64        `json:"retryBytes"`
-	RetriedSlabs       int64        `json:"retriedSlabs"`
-	MaxSlabAttempt     int          `json:"maxSlabAttempt"`
-	FinalizingForMS    int64        `json:"finalizingForMS"`
-	RetryDetails       []ShardRetry `json:"retryDetails,omitempty"`
+	PhysicalSent     int64        `json:"physicalSent"`
+	ExpectedPhysical int64        `json:"expectedPhysical"`
+	ShardUploads     int64        `json:"shardUploads"`
+	ExpectedShards   int64        `json:"expectedShards"`
+	ObservedUnique   int64        `json:"observedUniqueShards"`
+	ObservedRetries  int64        `json:"observedRetryShards"`
+	RetryBytes       int64        `json:"retryBytes"`
+	RetriedSlabs     int64        `json:"retriedSlabs"`
+	MaxSlabAttempt   int          `json:"maxSlabAttempt"`
+	FinalizingForMS  int64        `json:"finalizingForMs"`
+	RetryDetails     []ShardRetry `json:"retryDetails,omitempty"`
 }
 
 // TransferStats contains live transfer activity. Byte totals cover the current
