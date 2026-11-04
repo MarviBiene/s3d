@@ -19,12 +19,26 @@ import (
 	"github.com/SiaFoundation/s3d/sia"
 	"github.com/SiaFoundation/s3d/sia/persist/sqlite"
 	"go.sia.tech/indexd/slabs"
-	"go.sia.tech/jape"
 	sdk "go.sia.tech/siastorage"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"lukechampine.com/flagg"
 )
+
+const adminAuthChallenge = `Basic realm="s3d admin", charset="UTF-8"`
+
+func adminBasicAuth(password string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, suppliedPassword, ok := r.BasicAuth(); !ok || suppliedPassword != password {
+				w.Header().Set("WWW-Authenticate", adminAuthChallenge)
+				http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 const (
 	configFileEnvVar       = "S3D_CONFIG_FILE"
@@ -425,7 +439,7 @@ func main() {
 	}
 	defer adminListener.Close()
 
-	adminHandler := jape.BasicAuth(cfg.AdminPassword)(s3.NewAdmin(backend, s3.WithLogger(log)))
+	adminHandler := adminBasicAuth(cfg.AdminPassword)(s3.NewAdmin(backend, s3.WithLogger(log)))
 	adminServer := &http.Server{
 		Handler:     adminHandler,
 		ReadTimeout: 30 * time.Second,
