@@ -118,7 +118,6 @@ func TestActiveUploadProgress(t *testing.T) {
 	}
 }
 
-
 func TestActiveUploadShardProgressAndRetries(t *testing.T) {
 	var stats transferStats
 	active := stats.beginNamedUpload("slab repack", 25, 96<<20)
