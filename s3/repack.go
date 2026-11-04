@@ -203,7 +203,7 @@ button:disabled { opacity:.45; cursor:not-allowed; }
     <button id="start">Start repack</button>
     <button id="cancel" class="danger" disabled>Cancel</button>
   </div>
-  <p class="note">The budget counts complete Sia objects, not only the live bytes inside the sparse slab. Freshly unpinned slabs are pruned by the normal safety-delayed cleanup loop.</p>
+  <p class="note">The budget counts complete Sia objects, not only the live bytes inside the sparse slab. Repacking causes Sia download/upload traffic and does not refund storage already paid on old contracts. Freshly unpinned slabs are pruned by the normal safety-delayed cleanup loop.</p>
 </div>
 
 <h2>Current waste</h2>
