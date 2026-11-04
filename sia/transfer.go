@@ -72,6 +72,7 @@ type (
 		shards           map[shardProgressKey]int
 		retries          map[shardProgressKey]shardRetryProgress
 		retriedSlabs     map[int]struct{}
+		retryUploads     int64
 		retryBytes       int64
 		maxSlabAttempt   int
 		finalizeStarted  time.Time
@@ -226,6 +227,7 @@ func (u *activeUpload) recordShardProgress(p sdk.ShardProgress) {
 	}
 	if attempt > 1 {
 		u.retriedSlabs[p.SlabIndex] = struct{}{}
+		u.retryUploads++
 		u.retryBytes += int64(p.ShardSize)
 		u.retries[key] = shardRetryProgress{
 			uploads:       attempt,
@@ -281,7 +283,7 @@ func (t *transferStats) snapshot() s3.TransferStats {
 		active.ShardUploads = u.shardUploads
 		active.ExpectedShards = u.expectedShards
 		active.ObservedUnique = int64(len(u.shards))
-		active.ObservedRetries = int64(len(u.retries))
+		active.ObservedRetries = u.retryUploads
 		active.RetryBytes = u.retryBytes
 		active.RetriedSlabs = int64(len(u.retriedSlabs))
 		active.MaxSlabAttempt = u.maxSlabAttempt
