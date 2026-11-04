@@ -57,14 +57,18 @@ type RepackPreview struct {
 // cancellation before that point leaves the old object references intact.
 type RepackStatus struct {
 	State      string        `json:"state"`
+	Phase      string        `json:"phase,omitempty"`
 	Options    RepackOptions `json:"options"`
 	StartedAt  time.Time     `json:"startedAt,omitempty"`
 	FinishedAt time.Time     `json:"finishedAt,omitempty"`
 
-	ObjectsTotal     int   `json:"objectsTotal"`
-	ObjectsCompleted int   `json:"objectsCompleted"`
-	RewriteBytes     int64 `json:"rewriteBytes"`
-	RewrittenBytes   int64 `json:"rewrittenBytes"`
+	ObjectsTotal        int    `json:"objectsTotal"`
+	ObjectsCompleted    int    `json:"objectsCompleted"`
+	CurrentObject       string `json:"currentObject,omitempty"`
+	CurrentObjectIndex  int    `json:"currentObjectIndex,omitempty"`
+	CurrentObjectSize   int64  `json:"currentObjectSize,omitempty"`
+	RewriteBytes        int64  `json:"rewriteBytes"`
+	RewrittenBytes      int64  `json:"rewrittenBytes"`
 
 	EstimatedLogicalReclaim  int64  `json:"estimatedLogicalReclaim"`
 	EstimatedPhysicalReclaim int64  `json:"estimatedPhysicalReclaim"`
@@ -217,7 +221,15 @@ button:disabled { opacity:.45; cursor:not-allowed; }
 <div class="panel">
   <div id="jobText">Idle</div>
   <div class="progress"><div id="bar"></div></div>
+  <p id="jobDetail" class="note"></p>
   <p id="jobError" class="error"></p>
+</div>
+
+<h2>Live transfers</h2>
+<div class="grid" id="transfers"></div>
+<div class="panel">
+  <div class="label">Active Sia uploads</div>
+  <div id="activeUploads" class="note" style="margin-top:10px">None</div>
 </div>
 
 <script>
@@ -281,6 +293,17 @@ async function cancel() {
   try { await json("/repack/cancel", {method:"POST"}); await status(); }
   catch(e) { $("jobError").textContent=e.message; }
 }
+function phaseLabel(p) {
+  const labels = {
+    planning:"Planning",
+    rewriting:"Downloading + uploading",
+    finalizing:"Finalizing packed upload",
+    pinning:"Pinning replacements",
+    committing:"Swapping metadata",
+    cleanup:"Cleaning old objects"
+  };
+  return labels[p] || p || "Idle";
+}
 async function status() {
   try {
     const s=await json("/repack/status");
@@ -290,16 +313,45 @@ async function status() {
     const pct=s.rewriteBytes>0 ? Math.min(100,100*s.rewrittenBytes/s.rewriteBytes) : 0;
     $("bar").style.width=pct+"%";
     $("jobText").innerHTML =
-      '<b>'+s.state+'</b> · '+s.objectsCompleted+'/'+s.objectsTotal+' objects · '+
+      '<b>'+s.state+'</b> · '+phaseLabel(s.phase)+' · '+s.objectsCompleted+'/'+s.objectsTotal+' objects · '+
       bytes(s.rewrittenBytes)+' / '+bytes(s.rewriteBytes)+
       (s.estimatedLogicalReclaim ? ' · est. reclaim '+bytes(s.estimatedLogicalReclaim)+' logical' : '');
+    $("jobDetail").textContent = s.currentObject
+      ? 'Current object '+(s.currentObjectIndex || 0)+'/'+s.objectsTotal+' · '+s.currentObject+' · '+bytes(s.currentObjectSize || 0)
+      : '';
     $("jobError").textContent=s.error || "";
   } catch(e) { $("jobError").textContent=e.message; }
+}
+async function transferStats() {
+  try {
+    const s=await json("/stats/uploads");
+    const t=s.transfer || {};
+    $("transfers").innerHTML =
+      card("S3 ingress", (t.s3IngressActive || 0)+" active · "+bytes(t.s3IngressRate || 0)+"/s")+
+      card("Sia upload", (t.siaUploadActive || 0)+" active · "+bytes(t.siaUploadRate || 0)+"/s")+
+      card("Buffer", bytes(t.bufferUsed || 0)+" / "+bytes(t.bufferLimit || 0))+
+      card("Pending", (s.pendingObjects || 0).toLocaleString()+" · "+bytes(s.pendingSize || 0))+
+      card("Uploaded", (s.uploadedObjects || 0).toLocaleString()+" · "+bytes(s.uploadedSize || 0))+
+      card("Orphaned", (s.orphanedObjects || 0).toLocaleString())+
+      card("Failed uploads", (s.failedUploads || 0).toLocaleString())+
+      card("Sia sent this run", bytes(t.siaUploadBytes || 0));
+    const active=t.activeUploads || [];
+    $("activeUploads").innerHTML = active.length ? active.map(u => {
+      const p=u.size>0 ? Math.min(100,100*u.uploaded/u.size) : 0;
+      return '<div style="margin:8px 0"><b>#'+u.id+' '+u.label+'</b> · '+u.state+
+        ' · '+u.objects+' objects · '+bytes(u.uploaded)+' / '+bytes(u.size)+
+        ' ('+p.toFixed(1)+'%)</div>';
+    }).join("") : "None";
+  } catch(e) {
+    $("activeUploads").textContent="Transfer stats unavailable: "+e.message;
+  }
 }
 $("preview").onclick=preview;
 $("start").onclick=start;
 $("cancel").onclick=cancel;
-preview(); status(); setInterval(status, 2000);
+preview(); status(); transferStats();
+setInterval(status, 1000);
+setInterval(transferStats, 1000);
 </script>
 </main>
 </body>
