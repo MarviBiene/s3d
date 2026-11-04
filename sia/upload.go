@@ -320,9 +320,14 @@ func (s *Sia) UploadStats(_ context.Context) (s3.UploadStats, error) {
 }
 
 func (s *Sia) uploadObjectGroup(ctx context.Context, group uploadGroup) error {
+	active := s.transfer.beginUpload(group)
+	s.configureActiveUpload(active, group.totalSize)
+	defer s.transfer.endUpload(active)
+
 	diagnostics := newUploadProgressDiagnostics()
 	progress := func(p sdk.ShardProgress) {
 		s.shardProgress(p)
+		active.recordShardProgress(p)
 		diagnostics.record(p)
 	}
 	upload, err := s.sdk.UploadPacked(ctx, sdk.WithUploadProgress(progress))
@@ -331,9 +336,6 @@ func (s *Sia) uploadObjectGroup(ctx context.Context, group uploadGroup) error {
 		return fmt.Errorf("failed to create packed upload: %w", err)
 	}
 	defer upload.Close()
-
-	active := s.transfer.beginUpload(group)
-	defer s.transfer.endUpload(active)
 
 	var objIdx []int
 	var errs []error
