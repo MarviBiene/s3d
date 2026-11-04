@@ -32,13 +32,13 @@ type RepackOptions struct {
 type RepackPreview struct {
 	Options RepackOptions `json:"options"`
 
-	Slabs             int     `json:"slabs"`
-	LogicalCapacity   int64   `json:"logicalCapacity"`
-	LiveBytes         int64   `json:"liveBytes"`
-	LogicalWaste      int64   `json:"logicalWaste"`
-	WastePercent      float64 `json:"wastePercent"`
-	PhysicalCapacity  int64   `json:"physicalCapacity"`
-	PhysicalWaste     int64   `json:"physicalWaste"`
+	Slabs            int     `json:"slabs"`
+	LogicalCapacity  int64   `json:"logicalCapacity"`
+	LiveBytes        int64   `json:"liveBytes"`
+	LogicalWaste     int64   `json:"logicalWaste"`
+	WastePercent     float64 `json:"wastePercent"`
+	PhysicalCapacity int64   `json:"physicalCapacity"`
+	PhysicalWaste    int64   `json:"physicalWaste"`
 
 	CandidateSlabs           int   `json:"candidateSlabs"`
 	SelectedSlabs            int   `json:"selectedSlabs"`
