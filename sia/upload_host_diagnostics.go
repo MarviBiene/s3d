@@ -249,7 +249,8 @@ func (d *SDKUploadDiagnostics) recordSDKMessage(at time.Time, message string) {
 		d.mu.Lock()
 		d.pinRetries++
 		d.appendEventLocked(s3.UploadDiagnosticEvent{
-			At: at, Kind: "pin_retry", Attempt: attempt, Reason: normalizeUploadFailureReason(exact), Detail: exact,
+			At: at, Kind: "pin_retry", SlabIndex: -1, ShardIndex: -1, Attempt: attempt,
+			Reason: normalizeUploadFailureReason(exact), Detail: exact,
 		})
 		d.mu.Unlock()
 		return
